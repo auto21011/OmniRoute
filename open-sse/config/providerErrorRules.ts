@@ -67,24 +67,39 @@ export type OperatorProviderErrorRule = {
   cooldownMs?: number;
 };
 
-let operatorProviderErrorRules: Record<string, OperatorProviderErrorRule[]> = {};
+const GLOBAL_RULES_KEY = "__omniroute_operator_provider_error_rules__";
+const _rulesStore = globalThis as unknown as Record<
+  string,
+  Record<string, OperatorProviderErrorRule[]> | undefined
+>;
+
+function getOperatorProviderErrorRules(): Record<string, OperatorProviderErrorRule[]> {
+  if (!_rulesStore[GLOBAL_RULES_KEY]) {
+    _rulesStore[GLOBAL_RULES_KEY] = {};
+  }
+  return _rulesStore[GLOBAL_RULES_KEY]!;
+}
 
 /**
  * Inject operator-declared rules. Called from the runtime-settings applier
  * (`applyRuntimeSettings`) once at boot and on every settings update, with the
  * value validated by the settings schema. Pass `undefined`/empty/null to clear.
  * Provider keys are lowercased so lookups are case-insensitive.
+ * Backed by globalThis so boot-time hydration in the instrumentation module graph
+ * reaches per-request handlers in the app/open-sse module graph (#5312-class).
  */
 export function setOperatorProviderErrorRules(
   rules: Record<string, OperatorProviderErrorRule[]> | undefined | null
 ): void {
-  operatorProviderErrorRules = {};
-  if (!rules) return;
-  for (const [provider, list] of Object.entries(rules)) {
-    if (Array.isArray(list) && list.length > 0) {
-      operatorProviderErrorRules[provider.toLowerCase()] = list;
+  const next: Record<string, OperatorProviderErrorRule[]> = {};
+  if (rules) {
+    for (const [provider, list] of Object.entries(rules)) {
+      if (Array.isArray(list) && list.length > 0) {
+        next[provider.toLowerCase()] = list;
+      }
     }
   }
+  _rulesStore[GLOBAL_RULES_KEY] = next;
 }
 
 // ─── Opencode ───────────────────────────────────────────────────────────────────
@@ -400,7 +415,7 @@ const FULL_TEXT_RULE_PROVIDERS = new Set(["agentrouter"]);
  */
 export function hasOperatorRuleForProvider(provider: string | null | undefined): boolean {
   if (!provider) return false;
-  const rules = operatorProviderErrorRules[provider.toLowerCase()];
+  const rules = getOperatorProviderErrorRules()[provider.toLowerCase()];
   return !!rules && rules.length > 0;
 }
 
@@ -445,7 +460,7 @@ export function getProviderErrorRuleMatch(
   // rule for a provider without editing this file. `operatorRules` is the
   // injected source (tests / direct callers); when omitted we fall back to the
   // settings-backed cache populated by `setOperatorProviderErrorRules`.
-  const opRules = (operatorRules ?? operatorProviderErrorRules)?.[key];
+  const opRules = (operatorRules ?? getOperatorProviderErrorRules())?.[key];
   if (opRules && opRules.length > 0) {
     const text = typeof body === "string" ? body : JSON.stringify(body ?? "");
     const lowered = text.toLowerCase();

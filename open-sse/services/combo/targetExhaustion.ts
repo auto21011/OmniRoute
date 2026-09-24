@@ -41,6 +41,7 @@ import { isClaudeMinuteRateLimitText, isExplicitClaudeQuota429Text } from "../us
 import { getCachedClaudeQuotaScopeDecision } from "@/domain/quotaCache";
 import { resolveProviderId } from "@/shared/constants/providers";
 import { LOCAL_MODEL_COOLDOWN_HEADER } from "../../utils/localCooldownHeader.ts";
+import { honorsRuleLockScope } from "../../config/providerErrorRules.ts";
 import type { ComboLogger, ResolvedComboTarget } from "./types.ts";
 
 // Connection-level failure statuses: the provider connection itself is likely bad (upstream
@@ -249,9 +250,27 @@ export function applyComboTargetExhaustion(
   // consequence: a SIBLING agentrouter connection that is merely
   // rate-limited (not the one this branch exhausted) will also no longer be
   // force-allowed for a later leg on the same provider — a remaining leg
-  // can now resolve to "no credentials available" instead of retrying a
-  // rate-limited sibling account, which is the intended, safer outcome.
-  if (isAgentrouterConnectionQuotaScope(provider, opts.fallbackResult)) {
+  // Provider-scoped rule (e.g. operator rule with scope='provider'):
+  // exhaust the entire provider for remaining targets this request.
+  if (
+    opts.fallbackResult?.ruleScope === "provider" &&
+    provider &&
+    provider !== "unknown" &&
+    honorsRuleLockScope(provider)
+  ) {
+    markProviderQuotaExhaustion(provider, opts);
+    return { ...derived, providerExhausted: true };
+  }
+
+  // Connection-scoped rule (agentrouter quota or operator rule with scope='connection')
+  if (
+    isAgentrouterConnectionQuotaScope(provider, opts.fallbackResult) ||
+    (opts.fallbackResult?.ruleScope === "connection" &&
+      provider &&
+      honorsRuleLockScope(provider) &&
+      !opts.fallbackResult.permanent &&
+      !opts.fallbackResult.creditsExhausted)
+  ) {
     markAgentrouterConnectionQuotaExhaustion(effectiveTarget, { sets, log, tag });
     return { ...derived, providerExhausted: true };
   }

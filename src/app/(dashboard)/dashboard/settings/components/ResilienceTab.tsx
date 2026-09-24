@@ -6,6 +6,7 @@ import { useNotificationStore } from "@/store/notificationStore";
 import { useTranslations } from "next-intl";
 import AutoDisableCard from "./AutoDisableCard";
 import ModelLockoutCard from "./ModelLockoutCard";
+import ProviderErrorRulesCard from "./ProviderErrorRulesCard";
 import { NumberField, BooleanField } from "./ResilienceFields";
 
 type RequestQueueSettings = {
@@ -1265,6 +1266,7 @@ export default function ResilienceTab() {
         />
       )}
       <ModelLockoutCard />
+      <ProviderErrorRulesCard />
     </div>
   );
 }
