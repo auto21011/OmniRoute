@@ -20,13 +20,10 @@ import {
   getProviderConnections,
   updateProviderConnection,
   mergeConnectionProviderSpecificData,
-  getProviderConnectionById,
   resetConnectionBackoff,
   touchConnectionLastUsed,
   clearConnectionErrorIfUnchanged,
 } from "@/lib/db/providers";
-import { getDbInstance } from "@/lib/db/core";
-import { getRecentEgressIpForConnection, EGRESS_IP_LOOKUP_WINDOW_MS } from "@/lib/db/proxyLogs";
 import { validateApiKey } from "@/lib/db/apiKeys";
 import {
   getActiveExclusiveConnectionLease,
@@ -106,8 +103,11 @@ import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/errorSanitizatio
 import {
   honorsRuleLockScope,
   isEgressBucketedLockScope,
-  egressBucketedLockProviders,
+  getProviderErrorRuleMatch,
+  resolveRuleMatchBody,
 } from "@omniroute/open-sse/config/providerErrorRules.ts";
+import { applyProviderScopeCooldown } from "./providerScopeCooldown";
+import { applyEgressIpLockout } from "./egressIpLockout";
 import {
   preflightQuota,
   isQuotaPreflightEnabled,
@@ -2434,95 +2434,9 @@ async function resolveDailyResetForProvider(
   }
 }
 
-/**
- * #10880 — cools down every connection sharing the failing connection's last
- * known egress IP. Best-effort and side-effect-safe by design:
- * - The failing connection C is NOT written here: the branch marks it BEFORE
- *   calling this helper (mirror of the connection-scoped agentrouter branch)
- *   — the branch returns right after, so the generic path below is never
- *   reached and opencode (passthroughModels) would otherwise get a per-model
- *   lockModel instead of a connection cooldown.
- * - Any DB failure is caught and logged — markAccountUnavailable must never
- *   fail because of the egress lookup or the sibling writes.
- * - Siblings are re-read fresh and only written when NOT terminal (T06: a
- *   banned/credits_exhausted sibling is never downgraded by an IP-level
- *   signal) and not already in cooldown.
- * - No mutex per sibling (markMutexes is per-connection): concurrent 429s may
- *   double-write, idempotent via updateProviderConnection.
- */
-async function applyEgressIpLockout(
-  connectionId: string,
-  provider: string,
-  cooldownMs: number,
-  reason: string
-): Promise<void> {
-  try {
-    const since = new Date(Date.now() - EGRESS_IP_LOOKUP_WINDOW_MS).toISOString();
-    const recent = getRecentEgressIpForConnection(connectionId, since);
-    if (!recent) {
-      log.info(
-        "AUTH",
-        `Egress lock: no known egress IP for ${provider}:${connectionId.slice(0, 8)} — skipped`
-      );
-      return;
-    }
-    const db = getDbInstance();
-    // Siblings are scoped to the allowlisted provider family: the egress IP
-    // budget is per provider (the opencode free tier is IP-bucketed, not
-    // account-bucketed — see #9611), so a 429 from one provider must never
-    // cool an unrelated provider sharing the same host IP (the default
-    // no-proxy deployment egresses everything through one IP).
-    //
-    // The family is BOUND from the same allowlist the branch gate reads
-    // (egressBucketedLockProviders() / isEgressBucketedLockScope) — never
-    // re-spelled as a SQL literal: a duplicated list would not follow a
-    // widening of the allowlist, leaving the opt-in half applied (the gate
-    // would fire for the new provider while its siblings stayed invisible).
-    const family = egressBucketedLockProviders();
-    const familyPlaceholders = family.map(() => "?").join(",");
-    const siblingIds = db
-      .prepare(
-        `SELECT DISTINCT connection_id FROM proxy_logs
-         WHERE egress_ip = ? AND timestamp >= ? AND connection_id != ?
-         AND provider IN (${familyPlaceholders})`
-      )
-      .all(recent.egressIp, since, connectionId, ...family)
-      .map((row: { connection_id: string }) => row.connection_id);
-    const now = Date.now();
-    let cooledCount = 0;
-    for (const id of siblingIds) {
-      // Fresh camelCase re-read per sibling (never trust a stale snapshot) —
-      // reuse the house getter so terminal/cooldown checks see the same shape
-      // the rotation uses (pattern agentrouter test).
-      const sibling = toProviderConnection(await getProviderConnectionById(id));
-      if (!sibling.id) continue;
-      if (isTerminalConnectionStatus(sibling)) continue; // T06
-      // cooldownUntilMs (not a raw new Date()) because rate_limited_until can
-      // hold a numeric-epoch string (e.g. the Antigravity full-quota path) —
-      // see #3954; NaN (no/invalid value) never exceeds `now`.
-      const existingUntil = cooldownUntilMs(sibling.rateLimitedUntil);
-      if (existingUntil > now) continue; // already cooling — never shorten
-      await updateProviderConnection(id, {
-        lastErrorType: reason || RateLimitReason.QUOTA_EXHAUSTED,
-        lastError: `Shared egress IP quota exhausted (${provider})`,
-        lastErrorAt: new Date().toISOString(),
-        errorCode: 429,
-        rateLimitedUntil: getUnavailableUntil(cooldownMs),
-        testStatus: "unavailable",
-      });
-      cooledCount += 1;
-    }
-    log.info(
-      "AUTH",
-      `Egress-bucketed cooldown: ${provider} ip=${recent.egressIp} connection=${connectionId.slice(0, 8)} cooled ${cooledCount} sibling(s) for ${Math.ceil(cooldownMs / 1000)}s`
-    );
-  } catch (err) {
-    log.warn("AUTH", `Egress-bucketed lock skipped after DB error: ${(err as Error).message}`);
-  }
-}
-
+// #10880 — the egress-IP sibling lockout was extracted to ./egressIpLockout.ts
+// so this file stays under its size cap; behavior is unchanged.
 type ExhaustionOptions = NonNullable<Parameters<typeof markAccountUnavailable>[6]>;
-
 /** Build the options for markAccountUnavailable on the chat exhaustion path.
  * Single place that forwards the request id so no chat sender can forget it:
  * every chat caller passes its in-scope id through here. */
@@ -2668,7 +2582,20 @@ export async function markAccountUnavailable(
     // "does not have permission to access this model"), which can be an ACCOUNT-scoped
     // entitlement gap (PRO vs free tier) rather than a provider-wide unsupported model — those
     // must keep rotating to other accounts normally.
-    if (isProviderModelUnsupported400(status, errorText)) {
+    // If the provider has a matching provider error rule (e.g. operator-configured rule),
+    // skip the generic provider_model_unsupported early-return so checkFallbackError
+    // handles it with the rule's custom scope and cooldown.
+    const hasCustomRuleMatch =
+      provider &&
+      Boolean(
+        getProviderErrorRuleMatch(
+          provider,
+          status,
+          null,
+          resolveRuleMatchBody(provider, null, errorText)
+        )
+      );
+    if (!hasCustomRuleMatch && isProviderModelUnsupported400(status, errorText)) {
       lockCopilotModelNotSupported(provider, connectionId, model, errorText);
       log.info(
         "AUTH",
@@ -2773,7 +2700,22 @@ export async function markAccountUnavailable(
     // ruleScope === "connection" alone — see isAgentrouterConnectionQuotaScope's
     // doc comment for why (a future permanent-state rule could pair scope
     // "connection" with a non-quota reason). That predicate is the actual guard.
-    const ruleScopeIsConnection = isAgentrouterConnectionQuotaScope(provider, fallbackResult);
+    // Provider-scoped rule: cool down all non-terminal connections for this provider
+    if (fallbackResult.ruleScope === "provider" && provider && !disableCooling) {
+      return await applyProviderScopeCooldown(
+        provider,
+        status,
+        fallbackResult,
+        getUnavailableUntil
+      );
+    }
+
+    const ruleScopeIsConnection =
+      (fallbackResult.ruleScope === "connection" &&
+        honorsRuleLockScope(provider) &&
+        !fallbackResult.permanent &&
+        !fallbackResult.creditsExhausted) ||
+      isAgentrouterConnectionQuotaScope(provider, fallbackResult);
     // #2997's disableCooling opt-out is respected here (`!disableCooling` below):
     // a connection with disableCooling=true skips this branch entirely and falls
     // into the per-model-quota block further down, which locks the model for up
@@ -2883,7 +2825,8 @@ export async function markAccountUnavailable(
         connectionId,
         provider!,
         connectionCooldownMs,
-        fallbackResult.reason
+        fallbackResult.reason,
+        getUnavailableUntil
       );
       return { shouldFallback: true, cooldownMs: connectionCooldownMs };
     }
@@ -2899,43 +2842,53 @@ export async function markAccountUnavailable(
     // :2843's per-model-quota status set (which excludes 400) — malformed 400s
     // carry no ruleScope and fall through unchanged.
     if (model && provider && status === 400 && fallbackResult.ruleScope === "model") {
-      // Single source of truth: the rule's own cooldownMs (surfaced on
-      // fallbackResult by the 400 pre-check in checkFallbackError). The literal
-      // is only the fallback for a rule that declares no cooldown — editing
-      // the rule's cooldownMs takes effect without touching this call site.
+      // Single source of truth: the rule's own cooldownMs and reason (both
+      // surfaced on fallbackResult by the 400 pre-check in checkFallbackError).
+      // The literals are only the fallback for a rule that declares neither —
+      // editing the rule takes effect without touching this call site.
       const ruleCooldownMs =
         typeof fallbackResult.cooldownMs === "number" && fallbackResult.cooldownMs > 0
           ? fallbackResult.cooldownMs
           : 3_600_000;
+      const ruleReason = fallbackResult.reason || "model_capacity";
       const lockout = recordModelLockoutFailure(
         provider,
         connectionId,
         model,
-        "model_capacity",
+        ruleReason,
         400,
         ruleCooldownMs,
         effectiveProviderProfile,
         { exactCooldownMs: ruleCooldownMs, maxCooldownMs: mlSettings.maxCooldownMs }
       );
       updateProviderConnection(connectionId, {
-        lastErrorType: "model_capacity",
-        lastError: `Model ${model} model_capacity`,
+        lastErrorType: ruleReason,
+        lastError: `Model ${model} ${ruleReason}`,
         lastErrorAt: new Date().toISOString(),
         errorCode: status,
       }).catch(() => {});
       log.info(
         "AUTH",
-        `Model-only lockout for ${provider}:${model} — ${status} model_capacity ${Math.ceil(lockout.cooldownMs / 1000)}s (rule scope=model, connection stays active)`
+        `Model-only lockout for ${provider}:${model} — ${status} ${ruleReason} ${Math.ceil(lockout.cooldownMs / 1000)}s (rule scope=model, connection stays active)`
       );
       return { shouldFallback: true, cooldownMs: lockout.cooldownMs };
     }
+    // Operator-declared model-scoped rules (ruleScope === "model") lock the
+    // single model for ANY status they match — the unified block below records
+    // the lockout the same way the 400 branch above does. 403 stays excluded:
+    // model-scoped 403 rules are already handled (and return) in the earlier
+    // agentrouter/rule connection branch.
+    const isModelScopedRule = fallbackResult.ruleScope === "model" && honorsRuleLockScope(provider);
     if (
-      (hasPerModelFailureScope(provider, model, connectionPassthroughModels, status, errorText) ||
+      status !== 403 &&
+      (isModelScopedRule ||
+        hasPerModelFailureScope(provider, model, connectionPassthroughModels, status, errorText) ||
         isModelScopedClaudeQuota) &&
       provider &&
       provider !== "codex" &&
       model &&
-      isModelScopedFailure(status, isNvidiaModelGone, fallbackResult, errorText, model)
+      (isModelScopedRule ||
+        isModelScopedFailure(status, isNvidiaModelGone, fallbackResult, errorText, model))
     ) {
       const reason =
         status === 404 || isNvidiaModelGone || isModelUnsupported401(status, errorText)
@@ -2944,7 +2897,7 @@ export async function markAccountUnavailable(
             ? "quota_exhausted"
             : status === 429
               ? "rate_limited"
-              : "server_error";
+              : fallbackResult.reason || "server_error";
 
       // #5976: a bare 500 is intermittent and NOT model-specific — skip
       // lockout/cooldown ONLY for the exact 500 (the contract its own tests pin:
@@ -2957,7 +2910,12 @@ export async function markAccountUnavailable(
         status >= 500 &&
         options.streamOutputEmitted === true &&
         !postOutputFailureReachesLockout(provider, connectionId, model);
-      if (isRequestScopedServerFailure(status, errorText, exemptAfterOutput)) {
+      // A model-scoped operator rule overrides the request-scoped exemption: the
+      // rule says this failure is the model's, so lock it even for a bare 500.
+      if (
+        !isModelScopedRule &&
+        isRequestScopedServerFailure(status, errorText, exemptAfterOutput)
+      ) {
         updateProviderConnection(connectionId, {
           lastErrorType: reason,
           lastError: `Model ${model} ${reason}`,
@@ -3191,7 +3149,7 @@ export async function markAccountUnavailable(
     // isPerModelQuotaProvider is false there, so this branch never fires and
     // the connection-wide credits_exhausted path above still applies.
     if (
-      isPerModelQuotaProvider &&
+      (isModelScopedRule || isPerModelQuotaProvider) &&
       (status === 403 || status === 402) &&
       provider &&
       model &&
