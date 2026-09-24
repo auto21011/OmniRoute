@@ -1871,6 +1871,29 @@ export function checkFallbackError(
     };
   }
 
+  const resolveProviderRuleFallback = () => {
+    if (!provider) return null;
+    const match = getProviderErrorRuleMatch(
+      provider,
+      status,
+      headers,
+      resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+    );
+    if (!match) return null;
+    const scaled = getScaledBaseCooldown(match.reason as RateLimitReasonValue, backoffLevel);
+    const ruleCooldownMs = match.cooldownMs;
+    const ruleScope = honorsRuleLockScope(provider) ? match.scope : undefined;
+    return {
+      shouldFallback: true,
+      cooldownMs: ruleCooldownMs ?? scaled.cooldownMs,
+      baseCooldownMs: ruleCooldownMs ?? scaled.baseCooldownMs,
+      configuredCooldownMs: ruleCooldownMs ?? scaled.baseCooldownMs,
+      newBackoffLevel: ruleCooldownMs !== undefined ? 0 : scaled.newBackoffLevel,
+      reason: match.reason,
+      ruleScope,
+    };
+  };
+
   const isRateLimitStatus = status === HTTP_STATUS.RATE_LIMITED;
   const preserveQuota429 = shouldPreserveQuotaSignals(provider, errorText);
   const shouldUseQuotaSignal = !isRateLimitStatus || preserveQuota429;
@@ -2095,19 +2118,15 @@ export function checkFallbackError(
       return { shouldFallback: false, cooldownMs: 0, reason: RateLimitReason.UNKNOWN };
     }
 
-    // #10334 — agentrouter EXCLUSIVE: consult the provider rules BEFORE the
-    // apikey-FORBIDDEN early-return below, so a recognized 403 body (e.g.
-    // "无权访问模型") carries the rule's declared reason/cooldown/scope instead of
-    // the generic short auth cooldown. Gated on honorsRuleLockScope — for any
-    // other provider this block is a no-op and the early-return stays identical.
-    if (status === HTTP_STATUS.FORBIDDEN && provider && honorsRuleLockScope(provider)) {
-      const forbiddenMatch = getProviderErrorRuleMatch(
-        provider,
-        status,
-        headers,
-        resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
-      );
-      if (forbiddenMatch) return ruleScopedResult(forbiddenMatch);
+    // Provider-specific rules (operator-declared in settings or catalog in
+    // providerRuleRegistry) are MORE SPECIFIC than generic status/error handling
+    // (e.g. apikey-FORBIDDEN early-return below, configuredRule, 400 BAD_REQUEST, 5xx).
+    // Consult them here so matching rules carry their declared reason/cooldown/scope.
+    // Supersedes the #10334 agentrouter-only 403 early-consult: the helper applies
+    // to every provider and gates ruleScope on honorsRuleLockScope internally.
+    const providerRuleFallback = resolveProviderRuleFallback();
+    if (providerRuleFallback) {
+      return providerRuleFallback;
     }
 
     if (
@@ -2126,55 +2145,19 @@ export function checkFallbackError(
     }
   }
 
+  // When errorText was null/empty, check provider rules here before configuredRule
+  const unTextedProviderFallback = resolveProviderRuleFallback();
+  if (unTextedProviderFallback) {
+    return unTextedProviderFallback;
+  }
+
   const configuredRule =
     isRateLimitStatus && !preserveQuota429
       ? matchErrorRuleByStatus(status)
       : findMatchingErrorRule(status, errorStr);
   if (configuredRule) {
     if (configuredRule.backoff) {
-      // Provider-specific rules in `providerRuleRegistry` are MORE SPECIFIC
-      // than the configured (global) rule, so we check them first. If a
-      // provider rule matches, it overrides the configured rule's reason
-      // (e.g. Opencode's `x-ratelimit-remaining-requests: 0` overrides
-      // 429 → RATE_LIMIT_EXCEEDED). We do NOT call the full `classifyError`
-      // here because its global status fallback would otherwise override
-      // specific configured reasons (e.g. 503 → SERVER_ERROR would be
-      // shadowed by 503 → MODEL_CAPACITY).
-      const providerMatch = provider
-        ? getProviderErrorRuleMatch(
-            provider,
-            status,
-            headers,
-            resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
-          )
-        : null;
-      const reason = providerMatch
-        ? providerMatch.reason
-        : (configuredRule.reason ?? RateLimitReason.UNKNOWN);
-      // Fix C: thread `providerMatch.cooldownMs` through so a configured rule
-      // like the "Monthly usage limit reached. Resets in N days." matcher can
-      // declare an explicit cooldown (e.g. 13 days) and have it win over the
-      // scaled backoff default returned by `buildRetryableFallback`. Without
-      // this, the rule's reason is used but its cooldownMs is silently
-      // dropped — which is exactly the user-visible bug where a 13-day
-      // upstream quota reset was being treated as ~60s.
-      const providerCooldownMs =
-        providerMatch?.cooldownMs !== undefined && providerMatch.cooldownMs > 0
-          ? providerMatch.cooldownMs
-          : undefined;
-      const ruleScope =
-        providerMatch && honorsRuleLockScope(provider) ? providerMatch.scope : undefined;
-      const fallback = buildRetryableFallback(reason);
-      if (providerCooldownMs !== undefined) {
-        return {
-          ...fallback,
-          cooldownMs: providerCooldownMs,
-          baseCooldownMs: providerCooldownMs,
-          configuredCooldownMs: providerCooldownMs,
-          ruleScope,
-        };
-      }
-      return { ...fallback, ruleScope };
+      return buildRetryableFallback(configuredRule.reason ?? RateLimitReason.UNKNOWN);
     }
     // #6842: non-backoff configured rules (e.g. status_402) previously never
     // consulted providerRuleRegistry, so a provider-specific rule (like

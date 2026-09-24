@@ -36,6 +36,7 @@ import { isCloudflareFingerprintRejection } from "../errorClassifier.ts";
 import { isAgentrouterConnectionQuotaScope } from "@/sse/services/auth";
 import { isVertexConnectionWidePermissionDenied } from "@/sse/services/vertexErrorClassifier";
 import { isSharedWalletCredits402 } from "../accountFallback/sharedWalletCredits.ts";
+import { honorsRuleLockScope } from "../../config/providerErrorRules.ts";
 import type { ComboLogger, ResolvedComboTarget } from "./types.ts";
 
 // Connection-level failure statuses: the provider connection itself is likely bad (upstream
@@ -164,9 +165,27 @@ export function applyComboTargetExhaustion(
   // consequence: a SIBLING agentrouter connection that is merely
   // rate-limited (not the one this branch exhausted) will also no longer be
   // force-allowed for a later leg on the same provider — a remaining leg
-  // can now resolve to "no credentials available" instead of retrying a
-  // rate-limited sibling account, which is the intended, safer outcome.
-  if (isAgentrouterConnectionQuotaScope(provider, opts.fallbackResult)) {
+  // Provider-scoped rule (e.g. operator rule with scope='provider'):
+  // exhaust the entire provider for remaining targets this request.
+  if (
+    opts.fallbackResult?.ruleScope === "provider" &&
+    provider &&
+    provider !== "unknown" &&
+    honorsRuleLockScope(provider)
+  ) {
+    markProviderQuotaExhaustion(provider, opts);
+    return true;
+  }
+
+  // Connection-scoped rule (agentrouter quota or operator rule with scope='connection')
+  if (
+    isAgentrouterConnectionQuotaScope(provider, opts.fallbackResult) ||
+    (opts.fallbackResult?.ruleScope === "connection" &&
+      provider &&
+      honorsRuleLockScope(provider) &&
+      !opts.fallbackResult.permanent &&
+      !opts.fallbackResult.creditsExhausted)
+  ) {
     markAgentrouterConnectionQuotaExhaustion(target, { sets, log, tag });
     return true;
   }

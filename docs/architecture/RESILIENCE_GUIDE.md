@@ -599,17 +599,16 @@ opt-in. `resolveRuleMatchBody()` and `honorsRuleLockScope()` both check
 the raw error text and has its declared `scope` honored, regardless of
 whether it also appears in either allowlist.
 
-**Known gap — `providerRuleRegistry` is never consulted for HTTP 400.**
-`checkFallbackError`'s `BAD_REQUEST` branch classifies status 400 entirely
-through its own pattern arrays (`MODEL_ACCESS_DENIED_PATTERNS`,
-`CONTEXT_OVERFLOW_PATTERNS`, etc. in `accountFallback.ts`) and returns before
-the `configuredRule`/`getProviderErrorRuleMatch` branch above it is reached.
-A built-in catalog rule (or an operator rule) with `status: 400` is
-syntactically valid but will never fire. No existing rule targets 400 today,
-so nothing in production is affected — but a future 400 rule needs this
-branch touched first, which is a larger change than adding a rule (it
-reclassifies 400 for every provider already relying on the pattern-array
-behavior) and is out of scope for a single-provider rule addition.
+**HTTP 400 rule support.**
+`checkFallbackError` evaluates matching provider rules (operator-declared rules and
+built-in catalog rules) BEFORE the generic `BAD_REQUEST` pattern arrays
+(`MODEL_ACCESS_DENIED_PATTERNS`, `CONTEXT_OVERFLOW_PATTERNS`, etc. in
+`accountFallback.ts`) and before generic status classification. Consequently, an
+operator or catalog rule with `status: 400` takes precedence and carries its declared
+`reason`, `cooldownMs`, and `ruleScope` (`provider`, `connection`, or `model`).
+Additionally, `markAccountUnavailable` skips the generic `isProviderModelUnsupported400`
+zero-cooldown early-return when a matching provider rule is found, allowing the rule's
+scoped cooldown to take effect across connections or models.
 
 ### Adding a new quota-misstating gateway
 
