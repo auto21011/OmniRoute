@@ -75,3 +75,47 @@ test("#5312-class: systemTransforms getter observes a cross-graph hydrate", () =
     "getter must read globalThis; a module-local `let` would keep the compiled default (operator override lost)"
   );
 });
+
+test("#5312-class: providerErrorRules setter writes the globalThis-shared slot and getter observes it", async () => {
+  const { setOperatorProviderErrorRules, hasOperatorRuleForProvider, getProviderErrorRuleMatch } =
+    await import("../../open-sse/config/providerErrorRules.ts");
+  const RULES_KEY = "__omniroute_operator_provider_error_rules__";
+
+  setOperatorProviderErrorRules({
+    "test-prov": [
+      {
+        status: 400,
+        match: "model not supported",
+        scope: "provider",
+      },
+    ],
+  });
+
+  assert.ok(
+    store[RULES_KEY],
+    "provider error rules must live on globalThis so operator overrides survive Next's module graphs"
+  );
+  assert.equal(hasOperatorRuleForProvider("test-prov"), true);
+  assert.equal(
+    getProviderErrorRuleMatch("test-prov", 400, null, "model not supported")?.scope,
+    "provider"
+  );
+
+  // Directly mutate the global slot (as if set by instrumentation-node module graph)
+  store[RULES_KEY] = {
+    "cross-graph-prov": [
+      {
+        status: 400,
+        match: "not supported",
+        scope: "connection",
+      },
+    ],
+  };
+  assert.equal(hasOperatorRuleForProvider("cross-graph-prov"), true);
+  assert.equal(
+    getProviderErrorRuleMatch("cross-graph-prov", 400, null, "not supported")?.scope,
+    "connection"
+  );
+
+  setOperatorProviderErrorRules(undefined);
+});

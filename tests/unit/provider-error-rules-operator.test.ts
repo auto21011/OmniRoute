@@ -7,6 +7,11 @@ import {
   honorsRuleLockScope,
   type OperatorProviderErrorRule,
 } from "../../open-sse/config/providerErrorRules.ts";
+import { checkFallbackError } from "../../open-sse/services/accountFallback.ts";
+import {
+  applyComboTargetExhaustion,
+  type ComboExhaustionSets,
+} from "../../open-sse/services/combo/targetExhaustion.ts";
 
 describe("operator error rules", () => {
   beforeEach(() => {
@@ -130,6 +135,148 @@ describe("operator error rules", () => {
       const m = getProviderErrorRuleMatch("acme", 404, null, body);
       assert.ok(m, "operator rule should match once resolveRuleMatchBody hands it the raw text");
       assert.equal(m.scope, "model");
+    });
+  });
+
+  describe("HTTP 400 operator rules priority over built-in patterns", () => {
+    const customProvider = "openai-compatible-chat-3c007462-eae7-44ca-a129-f721d0004827";
+    const errorMsg = "Requested model deepseek-r1 is not supported";
+
+    it("operator rule for 400 with scope='provider' takes precedence over MODEL_ACCESS_DENIED_PATTERNS", () => {
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "provider",
+            reason: "quota_exhausted",
+            cooldownMs: 21600000,
+          },
+        ],
+      });
+
+      const result = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(result.shouldFallback, true);
+      assert.equal(result.reason, "quota_exhausted");
+      assert.equal(result.ruleScope, "provider");
+      assert.equal(result.cooldownMs, 21600000);
+      assert.equal(result.configuredCooldownMs, 21600000);
+    });
+
+    it("operator rule for 400 with scope='connection' takes precedence over zero-cooldown 400", () => {
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "connection",
+            reason: "quota_exhausted",
+            cooldownMs: 3600000,
+          },
+        ],
+      });
+
+      const result = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(result.shouldFallback, true);
+      assert.equal(result.reason, "quota_exhausted");
+      assert.equal(result.ruleScope, "connection");
+      assert.equal(result.cooldownMs, 3600000);
+    });
+
+    it("without operator rule, 400 with 'not supported' falls back to zero-cooldown MODEL_CAPACITY", () => {
+      const result = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(result.shouldFallback, true);
+      assert.equal(result.reason, "model_capacity");
+      assert.equal(result.cooldownMs, 0);
+      assert.equal(result.ruleScope, undefined);
+    });
+
+    it("combo target exhaustion: ruleScope='provider' adds provider to exhaustedProviders", () => {
+      const sets: ComboExhaustionSets = {
+        exhaustedProviders: new Set<string>(),
+        exhaustedConnections: new Set<string>(),
+        transientRateLimitedProviders: new Set<string>(),
+      };
+
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "provider",
+            cooldownMs: 21600000,
+          },
+        ],
+      });
+
+      const fallbackResult = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(fallbackResult.ruleScope, "provider");
+
+      const exhausted = applyComboTargetExhaustion(
+        { provider: customProvider, connectionId: "conn-123", model: "deepseek-r1" },
+        {
+          result: { status: 400 },
+          fallbackResult,
+          errorText: errorMsg,
+          rawModel: "deepseek-r1",
+          isTokenLimitBreach: false,
+          allAccountsRateLimited: false,
+          requestScopedFailure: false,
+          sets,
+          log: { info: () => {}, debug: () => {} },
+          tag: "COMBO",
+          exhaustedLogLevel: "info",
+        }
+      );
+
+      assert.equal(exhausted, true);
+      assert.ok(
+        sets.exhaustedProviders.has(customProvider),
+        "provider must be added to exhaustedProviders"
+      );
+    });
+
+    it("combo target exhaustion: ruleScope='connection' adds connection to exhaustedConnections", () => {
+      const sets: ComboExhaustionSets = {
+        exhaustedProviders: new Set<string>(),
+        exhaustedConnections: new Set<string>(),
+        transientRateLimitedProviders: new Set<string>(),
+      };
+
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "connection",
+            cooldownMs: 3600000,
+          },
+        ],
+      });
+
+      const fallbackResult = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(fallbackResult.ruleScope, "connection");
+
+      const exhausted = applyComboTargetExhaustion(
+        { provider: customProvider, connectionId: "conn-123", model: "deepseek-r1" },
+        {
+          result: { status: 400 },
+          fallbackResult,
+          errorText: errorMsg,
+          rawModel: "deepseek-r1",
+          isTokenLimitBreach: false,
+          allAccountsRateLimited: false,
+          requestScopedFailure: false,
+          sets,
+          log: { info: () => {}, debug: () => {} },
+          tag: "COMBO",
+          exhaustedLogLevel: "info",
+        }
+      );
+
+      assert.equal(exhausted, true);
+      assert.ok(sets.exhaustedConnections.has(`${customProvider}:conn-123`));
+      assert.ok(!sets.exhaustedProviders.has(customProvider));
     });
   });
 });

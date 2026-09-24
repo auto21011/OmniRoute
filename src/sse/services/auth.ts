@@ -25,8 +25,6 @@ import {
   touchConnectionLastUsed,
   clearConnectionErrorIfUnchanged,
 } from "@/lib/db/providers";
-import { getDbInstance } from "@/lib/db/core";
-import { getRecentEgressIpForConnection, EGRESS_IP_LOOKUP_WINDOW_MS } from "@/lib/db/proxyLogs";
 import { validateApiKey } from "@/lib/db/apiKeys";
 import {
   getActiveExclusiveConnectionLease,
@@ -106,8 +104,11 @@ import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/errorSanitizatio
 import {
   honorsRuleLockScope,
   isEgressBucketedLockScope,
-  egressBucketedLockProviders,
+  getProviderErrorRuleMatch,
+  resolveRuleMatchBody,
 } from "@omniroute/open-sse/config/providerErrorRules.ts";
+import { applyProviderScopeCooldown } from "./providerScopeCooldown";
+import { applyEgressIpLockout } from "./egressIpLockout";
 import {
   preflightQuota,
   isQuotaPreflightEnabled,
@@ -2668,7 +2669,19 @@ export async function markAccountUnavailable(
     // "does not have permission to access this model"), which can be an ACCOUNT-scoped
     // entitlement gap (PRO vs free tier) rather than a provider-wide unsupported model — those
     // must keep rotating to other accounts normally.
-    if (isProviderModelUnsupported400(status, errorText)) {
+    // If the provider has a matching provider error rule (operator-configured), skip the
+    // generic early return so checkFallbackError applies the rule's scope and cooldown.
+    const hasCustomRuleMatch =
+      provider &&
+      Boolean(
+        getProviderErrorRuleMatch(
+          provider,
+          status,
+          null,
+          resolveRuleMatchBody(provider, null, errorText)
+        )
+      );
+    if (!hasCustomRuleMatch && isProviderModelUnsupported400(status, errorText)) {
       lockCopilotModelNotSupported(provider, connectionId, model, errorText);
       log.info(
         "AUTH",
@@ -2773,7 +2786,22 @@ export async function markAccountUnavailable(
     // ruleScope === "connection" alone — see isAgentrouterConnectionQuotaScope's
     // doc comment for why (a future permanent-state rule could pair scope
     // "connection" with a non-quota reason). That predicate is the actual guard.
-    const ruleScopeIsConnection = isAgentrouterConnectionQuotaScope(provider, fallbackResult);
+    // Provider-scoped rule: cool down all non-terminal connections for this provider
+    if (fallbackResult.ruleScope === "provider" && provider && !disableCooling) {
+      return await applyProviderScopeCooldown(
+        provider,
+        status,
+        fallbackResult,
+        getUnavailableUntil
+      );
+    }
+
+    const ruleScopeIsConnection =
+      (fallbackResult.ruleScope === "connection" &&
+        honorsRuleLockScope(provider) &&
+        !fallbackResult.permanent &&
+        !fallbackResult.creditsExhausted) ||
+      isAgentrouterConnectionQuotaScope(provider, fallbackResult);
     // #2997's disableCooling opt-out is respected here (`!disableCooling` below):
     // a connection with disableCooling=true skips this branch entirely and falls
     // into the per-model-quota block further down, which locks the model for up
@@ -2883,7 +2911,8 @@ export async function markAccountUnavailable(
         connectionId,
         provider!,
         connectionCooldownMs,
-        fallbackResult.reason
+        fallbackResult.reason,
+        getUnavailableUntil
       );
       return { shouldFallback: true, cooldownMs: connectionCooldownMs };
     }
@@ -2899,43 +2928,53 @@ export async function markAccountUnavailable(
     // :2843's per-model-quota status set (which excludes 400) — malformed 400s
     // carry no ruleScope and fall through unchanged.
     if (model && provider && status === 400 && fallbackResult.ruleScope === "model") {
-      // Single source of truth: the rule's own cooldownMs (surfaced on
-      // fallbackResult by the 400 pre-check in checkFallbackError). The literal
-      // is only the fallback for a rule that declares no cooldown — editing
-      // the rule's cooldownMs takes effect without touching this call site.
+      // Single source of truth: the rule's own cooldownMs and reason (both
+      // surfaced on fallbackResult by the 400 pre-check in checkFallbackError).
+      // The literals are only the fallback for a rule that declares neither —
+      // editing the rule takes effect without touching this call site.
       const ruleCooldownMs =
         typeof fallbackResult.cooldownMs === "number" && fallbackResult.cooldownMs > 0
           ? fallbackResult.cooldownMs
           : 3_600_000;
+      const ruleReason = fallbackResult.reason || "model_capacity";
       const lockout = recordModelLockoutFailure(
         provider,
         connectionId,
         model,
-        "model_capacity",
+        ruleReason,
         400,
         ruleCooldownMs,
         effectiveProviderProfile,
         { exactCooldownMs: ruleCooldownMs, maxCooldownMs: mlSettings.maxCooldownMs }
       );
       updateProviderConnection(connectionId, {
-        lastErrorType: "model_capacity",
-        lastError: `Model ${model} model_capacity`,
+        lastErrorType: ruleReason,
+        lastError: `Model ${model} ${ruleReason}`,
         lastErrorAt: new Date().toISOString(),
         errorCode: status,
       }).catch(() => {});
       log.info(
         "AUTH",
-        `Model-only lockout for ${provider}:${model} — ${status} model_capacity ${Math.ceil(lockout.cooldownMs / 1000)}s (rule scope=model, connection stays active)`
+        `Model-only lockout for ${provider}:${model} — ${status} ${ruleReason} ${Math.ceil(lockout.cooldownMs / 1000)}s (rule scope=model, connection stays active)`
       );
       return { shouldFallback: true, cooldownMs: lockout.cooldownMs };
     }
+    // Operator-declared model-scoped rules (ruleScope === "model") lock the
+    // single model for ANY status they match — the unified block below records
+    // the lockout the same way the 400 branch above does. 403 stays excluded:
+    // model-scoped 403 rules are already handled (and return) in the earlier
+    // agentrouter/rule connection branch.
+    const isModelScopedRule = fallbackResult.ruleScope === "model" && honorsRuleLockScope(provider);
     if (
-      (hasPerModelFailureScope(provider, model, connectionPassthroughModels, status, errorText) ||
+      status !== 403 &&
+      (isModelScopedRule ||
+        hasPerModelFailureScope(provider, model, connectionPassthroughModels, status, errorText) ||
         isModelScopedClaudeQuota) &&
       provider &&
       provider !== "codex" &&
       model &&
-      isModelScopedFailure(status, isNvidiaModelGone, fallbackResult, errorText, model)
+      (isModelScopedRule ||
+        isModelScopedFailure(status, isNvidiaModelGone, fallbackResult, errorText, model))
     ) {
       const reason =
         status === 404 || isNvidiaModelGone || isModelUnsupported401(status, errorText)
@@ -2944,7 +2983,7 @@ export async function markAccountUnavailable(
             ? "quota_exhausted"
             : status === 429
               ? "rate_limited"
-              : "server_error";
+              : fallbackResult.reason || "server_error";
 
       // #5976: a bare 500 is intermittent and NOT model-specific — skip
       // lockout/cooldown ONLY for the exact 500 (the contract its own tests pin:
@@ -2957,7 +2996,13 @@ export async function markAccountUnavailable(
         status >= 500 &&
         options.streamOutputEmitted === true &&
         !postOutputFailureReachesLockout(provider, connectionId, model);
-      if (isRequestScopedServerFailure(status, errorText, exemptAfterOutput)) {
+      // A bare 500 also skips the lockout — UNLESS a model-scoped operator rule
+      // matched (isModelScopedRule): the rule says this failure is the model's,
+      // so lock it despite the usually-intermittent 500.
+      if (
+        isRequestScopedServerFailure(status, errorText, exemptAfterOutput) &&
+        !(status === 500 && isModelScopedRule)
+      ) {
         updateProviderConnection(connectionId, {
           lastErrorType: reason,
           lastError: `Model ${model} ${reason}`,
@@ -3191,7 +3236,7 @@ export async function markAccountUnavailable(
     // isPerModelQuotaProvider is false there, so this branch never fires and
     // the connection-wide credits_exhausted path above still applies.
     if (
-      isPerModelQuotaProvider &&
+      (isModelScopedRule || isPerModelQuotaProvider) &&
       (status === 403 || status === 402) &&
       provider &&
       model &&
