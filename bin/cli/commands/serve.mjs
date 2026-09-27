@@ -247,17 +247,10 @@ export async function runServe(opts = {}) {
   // doomed child's EADDRINUSE arrives only after this process has rewritten
   // the pid files of the healthy instance that actually owns the port.
   // findListeningPids() returning null means the discovery tool itself is
-  // missing or unusable (Termux, slim containers, #14518) — fall back to a
-  // bind probe so the guard still answers before spawning the doomed child.
-  let busyPids = await findListeningPids(dashboardPort);
-  if (busyPids === null) {
-    // Discovery tool missing/unusable (#14518): the bind probe is the guard.
-    if (!(await probePortFree(dashboardPort))) busyPids = [null];
-  } else if (busyPids.length === 0) {
-    // Discovery ran and saw nothing, but that window can race a starting
-    // instance; a bind probe costs nothing and doubles as confirmation.
-    if (!(await probePortFree(dashboardPort))) busyPids = [null];
-  }
+  // missing or unusable (Termux, slim containers, #14518) — resolveBusyPortPids
+  // falls back to a bind probe so the guard still answers before spawning the
+  // doomed child, and always hands back a list (never null).
+  const busyPids = await resolveBusyPortPids(dashboardPort);
   if (busyPids.length > 0) {
     reportPortInUse(dashboardPort, busyPids);
     process.exit(1);
@@ -360,6 +353,48 @@ export function reportPortInUse(port, pids = []) {
   );
   console.error(`  To replace it:    \x1b[36momniroute stop\x1b[0m, then start again`);
   console.error(`  To run alongside: \x1b[36momniroute serve --port <other-port>\x1b[0m\n`);
+}
+
+/**
+ * Resolve which pids (if any) already own `port`, combining pid discovery with
+ * the tool-free bind probe.
+ *
+ * `findListeningPids()` answers null when discovery is missing or unusable and
+ * `[]` when it ran and saw no listener. An empty answer can still race a
+ * starting instance, so BOTH the "unknown" and the "empty" cases are confirmed
+ * with the bind probe before a start is allowed.
+ *
+ * Returns `[]` when the port is free, the discovered pid list when the owner is
+ * known, and `[null]` when the port is owned but the owner cannot be identified
+ * (`reportPortInUse` renders that as "an unknown process").
+ *
+ * Exported for unit tests. The null-discovery branch used to fall through with
+ * `busyPids` still null, so the `.length` check in `runServe` threw
+ * `TypeError: Cannot read properties of null (reading 'length')`. Because
+ * `lsof -ti :PORT` exits 1 on "no match" — which `findListeningPids` maps to
+ * null — a FREE port was exactly the case that produced null, i.e. the normal
+ * path on every host with lsof installed.
+ *
+ * @param {number} port
+ * @param {{ findListeningPids?: (port: number) => Promise<number[] | null>, probePortFree?: (port: number) => Promise<boolean> }} [deps]
+ * @returns {Promise<Array<number | null>>}
+ */
+export async function resolveBusyPortPids(port, deps = {}) {
+  const discover = deps.findListeningPids || findListeningPids;
+  const probe = deps.probePortFree || probePortFree;
+
+  const discovered = await discover(port);
+  if (discovered === null) {
+    // Discovery tool missing/unusable (#14518): the bind probe is the guard.
+    // Normalise to a list — leaving null here broke the caller's `.length`.
+    return (await probe(port)) ? [] : [null];
+  }
+  if (discovered.length === 0) {
+    // Discovery ran and saw nothing, but that window can race a starting
+    // instance; a bind probe costs nothing and doubles as confirmation.
+    return (await probe(port)) ? [] : [null];
+  }
+  return discovered;
 }
 
 function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {

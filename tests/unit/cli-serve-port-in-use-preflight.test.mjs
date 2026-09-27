@@ -193,6 +193,67 @@ test(
   }
 );
 
+// The #14518 preflight crashed on the very path it introduced. `lsof -ti :PORT`
+// exits 1 when it finds no match — which is the normal result on a FREE port,
+// and `findListeningPids()` maps every non-zero exit to null ("tool unusable").
+// The guard then bind-probed, correctly saw the port free, and left
+// `busyPids === null` in place, so the `.length` check immediately below threw
+// `TypeError: Cannot read properties of null (reading 'length')` and
+// `omniroute` exited 1 without ever starting the server. Every host with lsof
+// installed hit this on every start with a free port.
+test("resolveBusyPortPids treats null discovery + a free probe as 'no owner'", async () => {
+  const { resolveBusyPortPids } = await import("../../bin/cli/commands/serve.mjs");
+  const pids = await resolveBusyPortPids(20128, {
+    findListeningPids: async () => null,
+    probePortFree: async () => true,
+  });
+  assert.deepEqual(pids, [], "a free port must resolve to an empty list, never null");
+  assert.equal(typeof pids.length, "number", "the caller reads .length unguarded");
+});
+
+test("resolveBusyPortPids flags an owner when discovery is null but the probe is busy", async () => {
+  const { resolveBusyPortPids } = await import("../../bin/cli/commands/serve.mjs");
+  const pids = await resolveBusyPortPids(20128, {
+    findListeningPids: async () => null,
+    probePortFree: async () => false,
+  });
+  assert.deepEqual(pids, [null], "[null] means 'port owned, owner unidentifiable'");
+});
+
+test("resolveBusyPortPids confirms an empty discovery with the bind probe", async () => {
+  const { resolveBusyPortPids } = await import("../../bin/cli/commands/serve.mjs");
+  assert.deepEqual(
+    await resolveBusyPortPids(20128, {
+      findListeningPids: async () => [],
+      probePortFree: async () => true,
+    }),
+    [],
+    "empty discovery + free probe stays free"
+  );
+  assert.deepEqual(
+    await resolveBusyPortPids(20128, {
+      findListeningPids: async () => [],
+      probePortFree: async () => false,
+    }),
+    [null],
+    "empty discovery + busy probe is a racing start, so report it"
+  );
+});
+
+test("resolveBusyPortPids trusts a positive discovery and skips the probe", async () => {
+  const { resolveBusyPortPids } = await import("../../bin/cli/commands/serve.mjs");
+  let probed = false;
+  const pids = await resolveBusyPortPids(20128, {
+    findListeningPids: async () => [19348],
+    probePortFree: async () => {
+      probed = true;
+      return true;
+    },
+  });
+  assert.deepEqual(pids, [19348], "a known owner is reported as-is");
+  assert.equal(probed, false, "a definitive owner needs no bind probe");
+});
+
 test("reportPortInUse names the port, the owning pid, and how to resolve it", async () => {
   const { reportPortInUse } = await import("../../bin/cli/commands/serve.mjs");
   const lines = [];
