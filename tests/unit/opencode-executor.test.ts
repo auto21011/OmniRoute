@@ -257,10 +257,11 @@ describe("OpencodeExecutor", () => {
       assert.equal(result.headers["Accept"], "text/event-stream");
     });
 
-    it("omits authorization when credentials are missing", async () => {
+    it("uses the public credential when Zen credentials are missing", async () => {
       const result = await zenExecutor.execute(createInput("minimax-m2.5-free", true, null));
 
       assert.deepEqual(result.headers, {
+        Authorization: "Bearer public",
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       });
@@ -379,7 +380,7 @@ describe("OpencodeExecutor", () => {
     it("forwards User-Agent without credentials", () => {
       const headers = zenExecutor.buildHeaders(null, true, { "User-Agent": "opencode/1.0" });
       assert.equal(headers["User-Agent"], "opencode/1.0");
-      assert.equal(headers["Authorization"], undefined);
+      assert.equal(headers["Authorization"], "Bearer public");
     });
   });
 
@@ -467,7 +468,7 @@ describe("OpencodeExecutor", () => {
         "x-opencode-session": "sess-noauth",
       });
       assert.equal(headers["x-opencode-session"], "sess-noauth");
-      assert.equal(headers["Authorization"], undefined);
+      assert.equal(headers["Authorization"], "Bearer public");
     });
   });
 

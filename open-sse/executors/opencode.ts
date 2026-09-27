@@ -1266,6 +1266,11 @@ export class OpencodeExecutor extends BaseExecutor {
       } else {
         headers["Authorization"] = `Bearer ${key}`;
       }
+    } else if (this.provider === "opencode" || this.provider === "opencode-zen") {
+      // OpenCode's anonymous Zen tier validates the CLI identity together with
+      // the public bearer credential. This does not apply to opencode-go, whose
+      // endpoint has no anonymous tier.
+      headers["Authorization"] = "Bearer public";
     }
 
     if (this._requestFormat === "claude") {
