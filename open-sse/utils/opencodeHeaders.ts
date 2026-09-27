@@ -80,19 +80,60 @@ function base62From(bytes: Buffer, length: number): string {
   return Array.from(bytes.subarray(0, length), (byte) => BASE62[byte % 62]).join("");
 }
 
+let lastSessionTimestamp = 0;
+let sessionCounter = 0;
+
+function generateOpenCodeIdentifier(prefix: "ses_" | "msg_"): string {
+  const timestamp = Date.now();
+  let sequence = 1;
+  if (prefix === "ses_") {
+    if (timestamp === lastSessionTimestamp) {
+      sessionCounter += 1;
+    } else {
+      lastSessionTimestamp = timestamp;
+      sessionCounter = 1;
+    }
+    sequence = sessionCounter;
+  }
+
+  const rawValue = BigInt(timestamp) * 0x1000n + BigInt(sequence);
+  const value = prefix === "ses_" ? ~rawValue : rawValue;
+  const encodedTimestamp = Array.from({ length: 6 }, (_, index) =>
+    Number((value >> BigInt(40 - 8 * index)) & 0xffn)
+      .toString(16)
+      .padStart(2, "0")
+  ).join("");
+
+  return `${prefix}${encodedTimestamp}${base62From(randomBytes(14), 14)}`;
+}
+
+function translateSessionId(sessionId: string, clientTool?: string): string {
+  const normalized = sessionId.trim();
+  if (OPENCODE_SESSION_PATTERN.test(normalized)) return normalized;
+
+  const digest = createHash("sha256")
+    .update(`opencode\0${clientTool || "generic"}\0${normalized}`)
+    .digest();
+  const translatedSuffix = Array.from(digest.subarray(6, 20), (byte) => BASE62[byte % 62]).join("");
+  return `ses_${digest.subarray(0, 6).toString("hex")}${translatedSuffix}`;
+}
+
 /**
  * Render an id in the canonical OpenCode shape (`<prefix>` + 12 hex + 14 base62).
  *
- * The upstream checks the shape and not the value: 12 arbitrary hex digits pass, so
- * there is no need to reproduce the client's own id algorithm (timestamp plus counter).
- * With a seed the result is deterministic, which is what keeps a conversation on one
- * upstream session — and therefore keeps prompt caching warm — across requests.
+ * When a seed is provided, the result is deterministic to keep conversations on one
+ * upstream session and keep prompt caching warm. When no seed is provided, a fresh
+ * identifier matching the upstream client's timestamp-sequence contract is generated.
  */
 function canonicalId(prefix: "ses_" | "msg_", seed?: string): string {
-  const bytes = seed
-    ? createHash("sha256").update(`opencode\u0000${prefix}\u0000${seed}`).digest()
-    : randomBytes(32);
-  return `${prefix}${bytes.subarray(0, 6).toString("hex")}${base62From(bytes.subarray(6), 14)}`;
+  if (seed) {
+    if (prefix === "ses_") {
+      return translateSessionId(seed);
+    }
+    const digest = createHash("sha256").update(`opencode\u0000${prefix}\u0000${seed}`).digest();
+    return `${prefix}${digest.subarray(0, 6).toString("hex")}${base62From(digest.subarray(6), 14)}`;
+  }
+  return generateOpenCodeIdentifier(prefix);
 }
 
 /**
