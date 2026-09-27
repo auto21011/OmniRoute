@@ -732,3 +732,23 @@ test("withDeadlineSignal wraps a Next-style proxied request without throwing", a
   // The deadline token mechanism still resolves the controller downstream.
   assert.equal(getDeadlineController({ headers: wrappedReq.headers }), deadlineController);
 });
+
+test("withDeadlineSignal handles foreign realm or subclass Request instances without throwing brand check error", () => {
+  // A Request-shaped object that is NOT a real Request (no internal #state), i.e.
+  // what a foreign-realm/subclass instance looks like to `new Request(obj, ...)`.
+  // `body` is provided as an own property so the field-by-field wrap can read it
+  // without touching Request.prototype's brand-checked getter.
+  const foreignReq = Object.create(Request.prototype, {
+    url: { value: "http://localhost/v1/chat/completions" },
+    method: { value: "POST" },
+    headers: { value: new Headers({ "content-type": "application/json" }) },
+    signal: { value: new AbortController().signal },
+    body: { value: undefined },
+  });
+
+  const { wrappedReq, deadlineController } = withDeadlineSignal(foreignReq as unknown as Request);
+  assert.ok(wrappedReq, "wrappedReq should be created");
+  assert.equal(wrappedReq.url, "http://localhost/v1/chat/completions");
+  assert.equal(wrappedReq.method, "POST");
+  assert.ok(deadlineController, "deadlineController should be created");
+});

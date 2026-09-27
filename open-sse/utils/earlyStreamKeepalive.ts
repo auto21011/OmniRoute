@@ -360,7 +360,6 @@ export function withDeadlineSignal(request: Request): {
   const headers = new Headers(request.headers);
   // Internal routing token only (never logged, never forwarded upstream — the
   // handler builds upstream headers from an allowlist). Survives clone() and
-  // admission rebuilds, which both copy headers but mint new signal objects.
   const token = `dl-${Date.now().toString(36)}-${(deadlineTokenSeq += 1)}`;
   headers.set(DEADLINE_TOKEN_HEADER, token);
   // Build the wrapped request field-by-field. Passing the incoming request
