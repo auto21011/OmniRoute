@@ -172,6 +172,44 @@ function base62From(bytes: Buffer, length: number): string {
   return Array.from(bytes.subarray(0, length), (byte) => BASE62[byte % 62]).join("");
 }
 
+let lastSessionTimestamp = 0;
+let sessionCounter = 0;
+
+function generateOpenCodeIdentifier(prefix: "ses_" | "msg_"): string {
+  const timestamp = Date.now();
+  let sequence = 1;
+  if (prefix === "ses_") {
+    if (timestamp === lastSessionTimestamp) {
+      sessionCounter += 1;
+    } else {
+      lastSessionTimestamp = timestamp;
+      sessionCounter = 1;
+    }
+    sequence = sessionCounter;
+  }
+
+  const rawValue = BigInt(timestamp) * 0x1000n + BigInt(sequence);
+  const value = prefix === "ses_" ? ~rawValue : rawValue;
+  const encodedTimestamp = Array.from({ length: 6 }, (_, index) =>
+    Number((value >> BigInt(40 - 8 * index)) & 0xffn)
+      .toString(16)
+      .padStart(2, "0")
+  ).join("");
+
+  return `${prefix}${encodedTimestamp}${base62From(randomBytes(14), 14)}`;
+}
+
+function translateSessionId(sessionId: string, clientTool?: string): string {
+  const normalized = sessionId.trim();
+  if (OPENCODE_SESSION_PATTERN.test(normalized)) return normalized;
+
+  const digest = createHash("sha256")
+    .update(`opencode\0${clientTool || "generic"}\0${normalized}`)
+    .digest();
+  const translatedSuffix = Array.from(digest.subarray(6, 20), (byte) => BASE62[byte % 62]).join("");
+  return `ses_${digest.subarray(0, 6).toString("hex")}${translatedSuffix}`;
+}
+
 /**
  * Render an id in the canonical OpenCode shape (`<prefix>` + 12 hex + 14 base62).
  *
