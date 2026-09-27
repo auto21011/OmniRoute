@@ -335,10 +335,29 @@ export function withDeadlineSignal(request: Request): {
   const headers = new Headers(request.headers);
   // Internal routing token only (never logged, never forwarded upstream — the
   // handler builds upstream headers from an allowlist). Survives clone() and
-  // admission rebuilds, which both copy headers but mint new signal objects.
   const token = `dl-${Date.now().toString(36)}-${(deadlineTokenSeq += 1)}`;
   headers.set(DEADLINE_TOKEN_HEADER, token);
-  const wrappedReq = new Request(request, { signal: combined, headers });
+  let wrappedReq: Request;
+  try {
+    wrappedReq = new Request(request, { signal: combined, headers });
+  } catch {
+    let body: BodyInit | null | undefined = undefined;
+    try {
+      body = request.body;
+    } catch {
+      body = undefined;
+    }
+    const init: RequestInit & { duplex?: "half" } = {
+      method: request.method,
+      headers,
+      signal: combined,
+    };
+    if (request.method !== "GET" && request.method !== "HEAD" && body) {
+      init.body = body;
+      init.duplex = "half";
+    }
+    wrappedReq = new Request(request.url, init);
+  }
   deadlineControllers.set(combined, deadlineController);
   deadlineControllersByToken.set(token, new WeakRef(deadlineController));
   deadlineTokenByController.set(deadlineController, token);

@@ -692,3 +692,18 @@ test("deadline token registry returns to its original size after N requests", as
     "a released token must not resolve through the header fallback"
   );
 });
+
+test("withDeadlineSignal handles foreign realm or subclass Request instances without throwing brand check error", () => {
+  const foreignReq = Object.create(Request.prototype, {
+    url: { value: "http://localhost/v1/chat/completions" },
+    method: { value: "POST" },
+    headers: { value: new Headers({ "content-type": "application/json" }) },
+    signal: { value: new AbortController().signal },
+  });
+
+  const { wrappedReq, deadlineController } = withDeadlineSignal(foreignReq as unknown as Request);
+  assert.ok(wrappedReq, "wrappedReq should be created");
+  assert.equal(wrappedReq.url, "http://localhost/v1/chat/completions");
+  assert.equal(wrappedReq.method, "POST");
+  assert.ok(deadlineController, "deadlineController should be created");
+});
