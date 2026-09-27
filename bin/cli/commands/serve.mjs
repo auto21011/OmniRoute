@@ -413,6 +413,36 @@ export function reportPortInUse(port, pids = []) {
   console.error(`  To run alongside: \x1b[36momniroute serve --port <other-port>\x1b[0m\n`);
 }
 
+/**
+ * Resolve which pids (if any) already own `port`, combining pid discovery with
+ * the tool-free bind probe.
+ *
+ * `findListeningPids()` answers null when discovery is missing or unusable and
+ * `[]` when it ran and saw no listener. An empty answer can still race a
+ * starting instance, so BOTH the "unknown" and the "empty" cases are confirmed
+ * with the bind probe before a start is allowed.
+ *
+ * Returns `[]` when the port is free, the discovered pid list when the owner is
+ * known, and `[null]` when the port is owned but the owner cannot be identified
+ * (`reportPortInUse` renders that as "an unknown process").
+ *
+ * Exported for unit tests. The null-discovery branch used to fall through with
+ * `busyPids` still null, so the `.length` check in `runServe` threw
+ * `TypeError: Cannot read properties of null (reading 'length')`. Because
+ * `lsof -ti :PORT` exits 1 on "no match" — which `findListeningPids` maps to
+ * null — a FREE port was exactly the case that produced null, i.e. the normal
+ * path on every host with lsof installed.
+ *
+ * @param {number} port
+ * @param {{ findListeningPids?: (port: number) => Promise<number[] | null>, probePortFree?: (port: number) => Promise<boolean> }} [deps]
+ * @returns {Promise<Array<number | null>>}
+ */
+export async function resolveBusyPortPids(port, deps = {}) {
+  // Superseded by resolveServeBusyPids (host-aware, same null/empty bind-probe
+  // fallback). Kept as an alias because the unit tests pin this entry point.
+  return resolveServeBusyPids(port, deps);
+}
+
 function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {
   // #5238: skip the explicit CLI --max-old-space-size when the user pinned the
   // heap via NODE_OPTIONS (a CLI arg would shadow/override their value).
