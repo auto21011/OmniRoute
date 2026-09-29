@@ -136,6 +136,9 @@ export function buildCallLogListRows({
   // so they appear in the logs grid alongside persisted entries.
   const activeEntries: any[] = [];
   const persistedIds = new Set(logs.map((log: any) => log.id).filter(Boolean));
+  const persistedCorrelationIds = new Set(
+    logs.map((log: any) => log.correlationId || log.correlation_id).filter(Boolean)
+  );
 
   for (const detail of pendingDetails) {
     activeEntries.push({
@@ -176,8 +179,19 @@ export function buildCallLogListRows({
 
   const pendingIds = new Set(activeEntries.map((entry) => entry.id));
   const completedEntries: any[] = [];
+  const seenCompletedCorrelationIds = new Set<string>();
   for (const detail of completedDetails) {
-    if (persistedIds.has(detail.id) || pendingIds.has(detail.id)) continue;
+    if (
+      persistedIds.has(detail.id) ||
+      pendingIds.has(detail.id) ||
+      (detail.correlationId && persistedCorrelationIds.has(detail.correlationId))
+    ) {
+      continue;
+    }
+    if (detail.correlationId) {
+      if (seenCompletedCorrelationIds.has(detail.correlationId)) continue;
+      seenCompletedCorrelationIds.add(detail.correlationId);
+    }
     const completedAt = typeof detail.completedAt === "number" ? detail.completedAt : null;
     const duration =
       typeof detail.durationMs === "number" && Number.isFinite(detail.durationMs)
