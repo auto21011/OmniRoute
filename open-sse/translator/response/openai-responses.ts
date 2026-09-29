@@ -1371,10 +1371,14 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
     return null;
   }
 
-  // Response completed
-  if (eventType === "response.completed") {
+  // Response completed / incomplete / done
+  if (
+    eventType === "response.completed" ||
+    eventType === "response.incomplete" ||
+    eventType === "response.done"
+  ) {
     // Extract usage from response.completed event
-    const responseUsage = data.response?.usage;
+    const responseUsage = data.response?.usage ?? data.usage;
     if (responseUsage && typeof responseUsage === "object") {
       const inputTokens = responseUsage.input_tokens || responseUsage.prompt_tokens || 0;
       const outputTokens = responseUsage.output_tokens || responseUsage.completion_tokens || 0;
@@ -1430,7 +1434,22 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
 
     if (!state.finishReasonSent) {
       state.finishReasonSent = true;
-      const reason = computeFinishReason(state);
+      let reason = computeFinishReason(state);
+      if (
+        eventType === "response.incomplete" ||
+        data.response?.status === "incomplete" ||
+        data.status === "incomplete"
+      ) {
+        const incompleteReason =
+          data.response?.incomplete_details?.reason ?? data.incomplete_details?.reason;
+        if (incompleteReason === "max_output_tokens") {
+          reason = "length";
+        } else if (incompleteReason === "content_filter") {
+          reason = "content_filter";
+        } else {
+          reason = "length";
+        }
+      }
       state.finishReason = reason; // Mark for usage injection in stream.js
 
       const finalChunk: Record<string, unknown> = {
