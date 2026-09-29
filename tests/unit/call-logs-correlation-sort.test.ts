@@ -128,3 +128,66 @@ test("buildCallLogListRows: dedupes completed in-memory entries already persiste
   // persisted row wins (no `completed` flag)
   assert.equal(rows[0].completed, undefined);
 });
+
+test("buildCallLogListRows: dedupes completed in-memory entries by correlationId when row id differs", () => {
+  const now = 4_000_000;
+  const rows = buildCallLogListRows({
+    logs: [
+      {
+        id: "persisted-uuid-1",
+        correlationId: "corr-1",
+        timestamp: new Date(now - 1_000).toISOString(),
+      },
+    ],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      {
+        id: "1790000000000-abc123",
+        correlationId: "corr-1",
+        startedAt: now - 3_000,
+        completedAt: now - 2_000,
+        provider: "openai",
+        model: "gpt-4o",
+        connectionId: "conn-1",
+      },
+    ],
+    now,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "persisted-uuid-1");
+  // persisted row wins (no `completed` flag)
+  assert.equal(rows[0].completed, undefined);
+});
+
+test("buildCallLogListRows: dedupes completed in-memory entries when persisted log has correlation_id", () => {
+  const now = 4_000_000;
+  const rows = buildCallLogListRows({
+    logs: [
+      {
+        id: "persisted-uuid-2",
+        correlation_id: "corr-2",
+        timestamp: new Date(now - 1_000).toISOString(),
+      },
+    ],
+    connections: [],
+    pendingDetails: [],
+    completedDetails: [
+      {
+        id: "1790000000000-xyz789",
+        correlationId: "corr-2",
+        startedAt: now - 3_000,
+        completedAt: now - 2_000,
+        provider: "openai",
+        model: "gpt-4o",
+        connectionId: "conn-1",
+      },
+    ],
+    now,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "persisted-uuid-2");
+  assert.equal(rows[0].completed, undefined);
+});
