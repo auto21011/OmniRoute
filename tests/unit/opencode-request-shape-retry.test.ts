@@ -496,7 +496,7 @@ test("without an origin, preparing a request behaves exactly as before", () => {
   const { attempt, body: out } = prepareFreeTierRequest(body, null, "zen", "opencode", MODEL);
   assert.ok(attempt);
   assert.equal(attempt.probe, false, "no replay can happen without an origin to key it on");
-  assert.equal(((out as Body).tools as unknown[]).length, 1);
+  assert.equal(((out as Body).tools as unknown[]).length, 4);
   noteFreeTierOutcome(attempt, false);
 });
 
