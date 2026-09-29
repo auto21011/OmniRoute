@@ -80,9 +80,18 @@ const OPENCODE_FREE_MODELS = new Set([
   "big-pickle",
   "deepseek-v4-flash-free",
   "mimo-v2.5-free",
+  "mimo-v2.6-flash-free",
   "hy3-free",
   "nemotron-3-ultra-free",
+  "nemotron-3.5-lightning-free",
   "north-mini-code-free",
+  "union-alpha",
+  "space-bunny-free",
+  "jev-1.13-free",
+  "ling-3.0-flash-fin-free",
+  "longcat-2.5-preview-free",
+  "muse-spark-1.2-contributor-free",
+  "muse-spark-1.3-contributor-free",
 ]);
 
 /**
@@ -97,11 +106,14 @@ export function isPremiumOpencodeModel(model: string, provider: string): boolean
   // opencode-go has no free tier — every model requires a key.
   if (provider === "opencode-go") return true;
 
-  // Models ending in `-free` are always free on the noauth/zen tier.
-  if (model.endsWith("-free")) return false;
+  // Strip trailing reasoning or effort suffix like "(low)" or "(high)"
+  const clean = model.replace(/\([^()]+\)\s*$/, "").trim();
+
+  // Models ending in `-free` or containing `-free` are always free on the noauth/zen tier.
+  if (clean.endsWith("-free") || clean.includes("-free")) return false;
 
   // Check the known free model catalog.
-  return !OPENCODE_FREE_MODELS.has(model);
+  return !OPENCODE_FREE_MODELS.has(clean) && !OPENCODE_FREE_MODELS.has(model);
 }
 
 /**
@@ -163,21 +175,23 @@ export function requiresFreeTierRequestContract(
   return isGatedFreeTierRequest(surface, provider, model) && isBodyContractEnabled();
 }
 
-/** The placeholder tool name the official client uses for the same purpose. */
-const PLACEHOLDER_TOOL_NAME = "_noop";
-export const DEFAULT_PLACEHOLDER_TOOL_NAME = PLACEHOLDER_TOOL_NAME;
+/**
+ * The lowercase tool quartet OpenCode Zen free tier requires to be declared.
+ *
+ * The gateway inspects tools and returns 403 FreeTierError unless all four quartet
+ * tools are declared. Client tools are preserved; missing quartet slots are filled
+ * with disabled placeholder tools.
+ */
+export const FINGERPRINT_TOOLS = ["bash", "glob", "grep", "read"] as const;
+export const DEFAULT_PLACEHOLDER_TOOL_NAMES: readonly string[] = FINGERPRINT_TOOLS;
+export const DEFAULT_PLACEHOLDER_TOOL_NAME = "_noop";
 
 /**
  * Operator-supplied placeholder tool names, comma-separated.
  *
  * The upstream inspects which names a request declares, and what it accepts differs by
- * model and moves over time (measured 2026-09-18: one made-up name is accepted on
- * `big-pickle` and refused on two other free models that had accepted it the day before).
- * That is an observation about someone else's service, not a fact about this project, so
- * it belongs in configuration rather than in a constant that needs a release to change.
- *
- * Empty or unset falls back to the built-in name, so an install that sets nothing keeps
- * the previous behaviour. Read per call, so a change takes effect immediately.
+ * model and moves over time. Empty or unset falls back to the fingerprint quartet.
+ * Read per call, so a change takes effect immediately.
  */
 export function configuredPlaceholderToolNames(): string[] {
   const raw = process.env.OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS || "";
@@ -190,69 +204,85 @@ export function configuredPlaceholderToolNames(): string[] {
   }
   return kept;
 }
-const PLACEHOLDER_TOOL_DESCRIPTION =
-  "Do not call this tool. It exists only for API compatibility and must never be invoked.";
+const PLACEHOLDER_TOOL_DESCRIPTION = "This tool is currently unavailable and must not be used.";
 const PLACEHOLDER_TOOL_PARAMETERS = { type: "object", properties: {} } as const;
+
+function hasTools(body: Record<string, unknown>): boolean {
+  return Array.isArray(body.tools) && body.tools.length > 0;
+}
 
 /**
  * Bring a free-tier request up to the upstream contract, without overriding anything the
- * caller already decided: client tools are kept as they are, and the placeholder tool is
- * only added when the caller sent none or when client-supplied tools do not yet carry the
- * required placeholder tool. Idempotent.
- *
- * The placeholder differs per surface: Chat Completions takes the nested function shape,
- * the Responses surface takes the flat one. Neither carries a `tool_choice` — the upstream
- * rejects any value but "auto" (measured 2026-09-18: 400 invalid_request_error, `only
- * "auto" is supported for tool_choice`), so a `tool_choice` the caller did not send is
- * never added, and one the caller did send travels unchanged. Any other body format only
- * gets the streaming flag: injecting a tool shape blind would be a guess.
- *
- * Which names go in is resolved by `resolvePlaceholderNames`, because the upstream does
- * inspect them.
+ * caller already decided: client tools are kept as they are, and when the caller sent none,
+ * the fingerprint quartet tools are declared as disabled placeholders with tool_choice "none"
+ * (or "auto" for flat responses) so the model answers in plain text without invoking tools.
+ * Idempotent.
  */
 export function applyFreeTierRequestContract<T>(
   body: T,
   requestFormat: string | null,
-  placeholderNames: readonly string[] = [PLACEHOLDER_TOOL_NAME]
+  placeholderNames: readonly string[] = FINGERPRINT_TOOLS
 ): T {
   if (!body || typeof body !== "object" || Array.isArray(body)) return body;
   const record = body as Record<string, unknown>;
   const next: Record<string, unknown> = { ...record, stream: true };
 
-  const existingNames = new Set(clientToolNamesOf(next));
-  const baseNames = placeholderNames.length > 0 ? placeholderNames : [PLACEHOLDER_TOOL_NAME];
-  const namesToAdd = baseNames.filter((name) => !existingNames.has(name));
+  const isResponses = requestFormat === "openai-responses";
+  const isChat = requestFormat === "openai" || requestFormat === null;
 
-  if (namesToAdd.length === 0) return next as T;
-
-  const existingTools = Array.isArray(next.tools) ? [...next.tools] : [];
-
-  if (requestFormat === "openai-responses") {
-    next.tools = [
-      ...existingTools,
-      ...namesToAdd.map((name) => ({
-        type: "function",
-        name,
-        description: PLACEHOLDER_TOOL_DESCRIPTION,
-        parameters: PLACEHOLDER_TOOL_PARAMETERS,
-      })),
-    ];
+  if (!isResponses && !isChat) {
     return next as T;
   }
 
-  if (requestFormat === "openai" || requestFormat === null) {
-    next.tools = [
-      ...existingTools,
-      ...namesToAdd.map((name) => ({
-        type: "function",
-        function: {
-          name,
-          description: PLACEHOLDER_TOOL_DESCRIPTION,
-          parameters: PLACEHOLDER_TOOL_PARAMETERS,
-        },
-      })),
-    ];
-    return next as T;
+  // Client-supplied tools are kept as-is on first dispatch.
+  // The official client sends tools on normal agent turns; missing tools are handled via retry.
+  if (hasTools(next)) return next as T;
+
+  // Caller sent no tools (e.g. omni-fast, chat queries, compaction/title requests):
+  // Upstream free tier requires all four lowercase quartet tools to be declared,
+  // and tool_choice set to "none" for chat completions (or "auto" for flat responses)
+  // so the model directly answers with text and does not attempt to invoke tools.
+  const names =
+    placeholderNames && placeholderNames.length > 0 && placeholderNames[0] !== "_noop"
+      ? placeholderNames
+      : FINGERPRINT_TOOLS;
+
+  const seen = new Set<string>();
+  const out: unknown[] = [];
+
+  // Add the quartet tools (and any custom placeholder names)
+  const allNames = Array.from(new Set([...names, ...FINGERPRINT_TOOLS]));
+
+  for (const name of allNames) {
+    if (name === "_noop" || seen.has(name)) continue;
+    seen.add(name);
+    out.push(
+      isResponses
+        ? {
+            type: "function",
+            name,
+            description: PLACEHOLDER_TOOL_DESCRIPTION,
+            parameters: PLACEHOLDER_TOOL_PARAMETERS,
+          }
+        : {
+            type: "function",
+            function: {
+              name,
+              description: PLACEHOLDER_TOOL_DESCRIPTION,
+              parameters: PLACEHOLDER_TOOL_PARAMETERS,
+            },
+          }
+    );
+  }
+
+  next.tools = out;
+
+  if (!next.tool_choice) {
+    if (isResponses) {
+      next.tool_choice = "auto";
+    } else {
+      next.tool_choice = "none";
+    }
   }
 
   return next as T;
