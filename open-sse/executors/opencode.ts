@@ -209,6 +209,7 @@ export {
   MUSE_SPARK_MIN_OUTPUT_TOKENS,
   applyMuseSparkMinOutputTokens,
   createMuseSparkStreamFinishNormalizer,
+  isResponsesTerminalLine,
   normalizeMuseSparkFinishReason,
 } from "./opencodeMuseSpark.ts";
 
@@ -1424,6 +1425,7 @@ export class OpencodeExecutor extends BaseExecutor {
     if (modifiedBody && typeof modifiedBody === "object" && !Array.isArray(modifiedBody)) {
       const mb = modifiedBody as Record<string, unknown>;
       mb.model = stripOpencodeModelPrefix(mb.model); // see providerModels.ts
+      applyMuseSparkMinOutputTokens(model, mb);
       // OpenCode accepts stream_options only on streaming Chat Completions (#13699).
       const format = this._requestFormat ?? resolveOpencodeTargetFormat(this.provider, model);
       if (format !== "openai" || mb.stream !== true) {

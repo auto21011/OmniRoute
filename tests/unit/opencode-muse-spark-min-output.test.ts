@@ -18,8 +18,12 @@ import assert from "node:assert/strict";
 
 const { applyMuseSparkMinOutputTokens, MUSE_SPARK_MIN_OUTPUT_TOKENS } =
   await import("../../open-sse/executors/opencode.ts");
-const { normalizeMuseSparkFinishReason, createMuseSparkStreamFinishNormalizer, OpencodeExecutor } =
-  await import("../../open-sse/executors/opencode.ts");
+const {
+  normalizeMuseSparkFinishReason,
+  createMuseSparkStreamFinishNormalizer,
+  OpencodeExecutor,
+  isResponsesTerminalLine,
+} = await import("../../open-sse/executors/opencode.ts");
 
 test("RED: muse-spark tiny max_tokens is raised to the floor", () => {
   const body: Record<string, unknown> = { model: "x", max_tokens: 64, messages: [] };
@@ -27,12 +31,25 @@ test("RED: muse-spark tiny max_tokens is raised to the floor", () => {
   assert.equal(body.max_tokens, MUSE_SPARK_MIN_OUTPUT_TOKENS);
 });
 
-test("RED: all muse-spark id variants are covered by the prefix match", () => {
-  for (const model of ["muse-spark-1", "muse-spark-1.2", "muse-spark-1.2-contributor"]) {
+test("RED: all muse-spark id variants and provider prefixes are covered", () => {
+  for (const model of [
+    "muse-spark-1",
+    "muse-spark-1.2",
+    "muse-spark-1.2-contributor",
+    "opencode/muse-spark-1.2-contributor-free",
+    "opencode-zen/muse-spark-1.3-contributor-free",
+  ]) {
     const body: Record<string, unknown> = { max_tokens: 100 };
     applyMuseSparkMinOutputTokens(model, body);
     assert.equal(body.max_tokens, MUSE_SPARK_MIN_OUTPUT_TOKENS, model);
   }
+});
+
+test("RED: max_output_tokens and max_completion_tokens are clamped as well", () => {
+  const body: Record<string, unknown> = { max_output_tokens: 50, max_completion_tokens: 30 };
+  applyMuseSparkMinOutputTokens("opencode-zen/muse-spark-1.2-contributor-free", body);
+  assert.equal(body.max_output_tokens, MUSE_SPARK_MIN_OUTPUT_TOKENS);
+  assert.equal(body.max_completion_tokens, MUSE_SPARK_MIN_OUTPUT_TOKENS);
 });
 
 test("RED: budgets already at or above the floor are untouched", () => {
@@ -143,6 +160,60 @@ test("closes the Muse Responses stream at response.completed before post-complet
       new Promise<string>((_, reject) => setTimeout(() => reject(new Error("stream hung")), 1000)),
     ]);
     assert.match(text, /response.completed/);
+    assert.doesNotMatch(text, /\"type\":\"ping\"/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("isResponsesTerminalLine identifies all terminal Responses API events", () => {
+  assert.equal(isResponsesTerminalLine('data: {"type":"response.completed"}'), true);
+  assert.equal(isResponsesTerminalLine('data: {"type":"response.incomplete"}'), true);
+  assert.equal(isResponsesTerminalLine('data: {"type":"response.done"}'), true);
+  assert.equal(isResponsesTerminalLine('data: {"type":"response.failed"}'), true);
+  assert.equal(isResponsesTerminalLine('data: {"type":"response.output_text.delta"}'), false);
+  assert.equal(isResponsesTerminalLine('data: {"type":"ping"}'), false);
+  assert.equal(isResponsesTerminalLine(": keepalive"), false);
+  assert.equal(isResponsesTerminalLine(""), false);
+});
+
+test("closes the Muse Responses stream at response.incomplete before post-completion pings", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () =>
+      new Response(
+        [
+          "event: response.output_text.delta",
+          'data: {"type":"response.output_text.delta","delta":"part"}',
+          "event: response.incomplete",
+          'data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":10,"output_tokens":512}}}',
+          "event: ping",
+          'data: {"type":"ping"}',
+          "",
+        ].join("\n"),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } }
+      )) as typeof fetch;
+
+    const result = await new OpencodeExecutor("opencode").execute({
+      model: "muse-spark-1.2-contributor-free",
+      body: {
+        model: "muse-spark-1.2-contributor-free",
+        max_output_tokens: 512,
+        stream: true,
+      },
+      stream: true,
+      credentials: {
+        providerSpecificData: {
+          fingerprints: ["test-account-a", "test-account-b"],
+          accountProxies: [],
+        },
+      },
+    });
+    const text = await Promise.race([
+      result.response.text(),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("stream hung")), 1000)),
+    ]);
+    assert.match(text, /response.incomplete/);
     assert.doesNotMatch(text, /\"type\":\"ping\"/);
   } finally {
     globalThis.fetch = originalFetch;

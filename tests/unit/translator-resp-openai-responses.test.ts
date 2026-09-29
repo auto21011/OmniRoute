@@ -1134,3 +1134,63 @@ test("OpenAI -> Responses: tool-call output_index stays gap-free when the upstre
     );
   });
 });
+
+test("Responses -> OpenAI: response.incomplete maps max_output_tokens to finish_reason length and carries usage", () => {
+  const state: Record<string, unknown> = {
+    chatId: "chatcmpl-test",
+    model: "muse-spark-1.2-contributor-free",
+  };
+  const incomplete = openaiResponsesToOpenAIResponse(
+    {
+      type: "response.incomplete",
+      response: {
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        usage: {
+          input_tokens: 120,
+          output_tokens: 512,
+        },
+      },
+    },
+    state
+  );
+
+  assert.ok(incomplete, "response.incomplete must emit a terminal chunk");
+  const chunk = incomplete as {
+    choices: Array<{ finish_reason: string; delta: Record<string, unknown> }>;
+    usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  };
+  assert.equal(chunk.choices[0].finish_reason, "length");
+  assert.equal(chunk.usage.prompt_tokens, 120);
+  assert.equal(chunk.usage.completion_tokens, 512);
+  assert.equal(chunk.usage.total_tokens, 632);
+});
+
+test("Responses -> OpenAI: response.done extracts usage and emits stop chunk", () => {
+  const state: Record<string, unknown> = {
+    chatId: "chatcmpl-done",
+    model: "muse-spark-1.3-contributor-free",
+  };
+  const done = openaiResponsesToOpenAIResponse(
+    {
+      type: "response.done",
+      response: {
+        status: "completed",
+        usage: {
+          input_tokens: 15,
+          output_tokens: 30,
+        },
+      },
+    },
+    state
+  );
+
+  assert.ok(done, "response.done must emit a terminal chunk");
+  const chunk = done as {
+    choices: Array<{ finish_reason: string }>;
+    usage: { prompt_tokens: number; completion_tokens: number };
+  };
+  assert.equal(chunk.choices[0].finish_reason, "stop");
+  assert.equal(chunk.usage.prompt_tokens, 15);
+  assert.equal(chunk.usage.completion_tokens, 30);
+});

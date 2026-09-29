@@ -22,11 +22,15 @@
 export const MUSE_SPARK_MIN_OUTPUT_TOKENS = 512;
 
 export function applyMuseSparkMinOutputTokens(model: string, body: Record<string, unknown>): void {
-  if (!model.startsWith("muse-spark")) return;
-  const current = body.max_tokens;
-  if (typeof current !== "number" || !Number.isFinite(current)) return;
-  if (current >= MUSE_SPARK_MIN_OUTPUT_TOKENS) return;
-  body.max_tokens = MUSE_SPARK_MIN_OUTPUT_TOKENS;
+  const clean = model.includes("/") ? model.split("/").pop()! : model;
+  if (!clean.startsWith("muse-spark")) return;
+  for (const field of ["max_tokens", "max_output_tokens", "max_completion_tokens"] as const) {
+    const current = body[field];
+    if (typeof current !== "number" || !Number.isFinite(current)) continue;
+    if (current < MUSE_SPARK_MIN_OUTPUT_TOKENS) {
+      body[field] = MUSE_SPARK_MIN_OUTPUT_TOKENS;
+    }
+  }
 }
 
 /** The completion count to trust: the tracked one when the caller has it, else the payload's usage. */
@@ -109,7 +113,13 @@ export function isResponsesTerminalLine(line: string): boolean {
   if (!trimmed.startsWith("data:")) return false;
   try {
     const payload = JSON.parse(trimmed.slice(5).trim()) as Record<string, unknown>;
-    return payload.type === "response.completed";
+    const type = payload.type;
+    return (
+      type === "response.completed" ||
+      type === "response.incomplete" ||
+      type === "response.done" ||
+      type === "response.failed"
+    );
   } catch {
     return false;
   }
