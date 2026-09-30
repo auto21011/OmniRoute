@@ -6,6 +6,7 @@ import type { ResilienceConnectionsResponse } from "@/types/resilience";
 import EmptyState from "@/shared/components/EmptyState";
 import ConnectionsTable from "./ConnectionsTable";
 import BreakerTimeline from "./BreakerTimeline";
+import LockedModelsCard from "./LockedModelsCard";
 
 const POLL_INTERVAL_MS = 30000;
 
@@ -163,11 +164,22 @@ export default function ResilienceConnectionsClient() {
       <EmptyState icon="shield" title={t("empty.title")} description={t("empty.description")} />
     );
 
+  const totalLockedModels = (data.connections || []).reduce(
+    (acc, c) => acc + (c.lockouts?.length || 0),
+    0
+  );
+
   return (
     <>
       {errorBanner}
       <div
-        style={{ display: "flex", gap: "16px", fontSize: "12px", color: "var(--color-text-muted)" }}
+        style={{
+          display: "flex",
+          gap: "16px",
+          fontSize: "12px",
+          color: "var(--color-text-muted)",
+          flexWrap: "wrap",
+        }}
       >
         <span>
           {t("summary.total", { count: data.meta.totalConnections })}
@@ -175,6 +187,7 @@ export default function ResilienceConnectionsClient() {
         </span>
         <span>{t("summary.coolingDown", { count: data.meta.coolingDownCount })}</span>
         <span>{t("summary.unhealthyBreakers", { count: data.meta.unhealthyBreakerCount })}</span>
+        <span>{t("summary.lockedModels", { count: totalLockedModels })}</span>
       </div>
       {data.meta.degraded.length > 0 && (
         <div
@@ -191,6 +204,12 @@ export default function ResilienceConnectionsClient() {
         </div>
       )}
       <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{t("pollingNote")}</div>
+      <LockedModelsCard
+        connections={data.connections}
+        onRelease={() => {
+          void fetchData(windowMs);
+        }}
+      />
       <ConnectionsTable
         connections={data.connections}
         receivedAt={data.receivedAt ?? 0}
