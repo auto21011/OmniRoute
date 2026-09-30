@@ -13890,7 +13890,11 @@
       "degraded": "降级",
       "terminal": "终止",
       "unknown": "未知",
-      "never": "-"
+      "never": "-",
+      "actions": "操作",
+      "clearCooldown": "解除冷却",
+      "clearingCooldown": "解除中...",
+      "clearCooldownSuccess": "已解除连接冷却"
     },
     "timeline": {
       "title": "断路器转换",
@@ -13944,7 +13948,16 @@
       "releaseAll": "全部释放",
       "releasing": "释放中...",
       "releaseSuccess": "已释放模型 {model}",
-      "releaseAllSuccess": "已释放所有模型锁定"
+      "releaseAllSuccess": "已释放所有模型锁定",
+      "clearCooldown": "解除冷却",
+      "clearingCooldown": "解除中...",
+      "clearCooldownSuccess": "已解除连接冷却",
+      "resetBreaker": "重置断路器",
+      "resettingBreaker": "重置中...",
+      "resetBreakerSuccess": "断路器已重置",
+      "restoreConnection": "一键恢复连接",
+      "restoring": "恢复中...",
+      "restoreSuccess": "连接状态已完全恢复"
     },
     "lockedModelsCard": {
       "title": "被禁用或冷却中的模型",
@@ -13976,7 +13989,10 @@
       "coolingDown": "{count} 个冷却中",
       "unhealthyBreakers": "{count} 个断路器未关闭",
       "lockedModels": "{count} 个模型锁定",
-      "capped": "显示前 1000 个"
+      "capped": "显示前 1000 个",
+      "clearAllCooldowns": "一键解除所有冷却",
+      "clearingAll": "正在解除...",
+      "clearAllSuccess": "已解除所有连接冷却"
     },
     "pollingNote": "注意:查看此页面会触发断路器的惰性恢复(HALF_OPEN 探测)。每 30 秒刷新一次。",
     "retry": "重试",

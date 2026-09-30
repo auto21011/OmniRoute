@@ -13890,7 +13890,11 @@
       "degraded": "Degraded",
       "terminal": "Terminal",
       "unknown": "Unknown",
-      "never": "-"
+      "never": "-",
+      "actions": "Actions",
+      "clearCooldown": "Clear Cooldown",
+      "clearingCooldown": "Clearing...",
+      "clearCooldownSuccess": "Cooldown cleared"
     },
     "timeline": {
       "title": "Breaker Transitions",
@@ -13944,7 +13948,16 @@
       "releaseAll": "Release All",
       "releasing": "Releasing...",
       "releaseSuccess": "Released model {model}",
-      "releaseAllSuccess": "Released all model lockouts"
+      "releaseAllSuccess": "Released all model lockouts",
+      "clearCooldown": "Clear Cooldown",
+      "clearingCooldown": "Clearing...",
+      "clearCooldownSuccess": "Cooldown cleared",
+      "resetBreaker": "Reset Breaker",
+      "resettingBreaker": "Resetting...",
+      "resetBreakerSuccess": "Circuit breaker reset successfully",
+      "restoreConnection": "Restore Connection",
+      "restoring": "Restoring...",
+      "restoreSuccess": "Connection restored successfully"
     },
     "lockedModelsCard": {
       "title": "Disabled & Cooled-Down Models",
@@ -13976,7 +13989,10 @@
       "coolingDown": "{count} cooling down",
       "unhealthyBreakers": "{count} breakers not closed",
       "lockedModels": "{count} models locked",
-      "capped": "showing first 1000"
+      "capped": "showing first 1000",
+      "clearAllCooldowns": "Clear All Cooldowns",
+      "clearingAll": "Clearing...",
+      "clearAllSuccess": "All connection cooldowns cleared"
     },
     "pollingNote": "Note: viewing this page triggers circuit breaker lazy recovery (HALF_OPEN probes). 30s refresh.",
     "retry": "Retry",

@@ -19,6 +19,13 @@ import type {
 } from "@/types/resilience";
 import { readRotationSnapshot } from "@omniroute/open-sse/services/rotationAttribution";
 import { isRotationAttributionEnabled } from "@/shared/utils/featureFlags";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import {
+  releaseSingleConnection,
+  releaseProviderConnections,
+  releaseAllConnections,
+  resetCircuitBreakerByName,
+} from "@/domain/connectionResilience";
 
 // Explicit column whitelist -- getRawProviderConnections() DEFAULTS TO SELECT *,
 // so passing columns is MANDATORY to avoid leaking api_key, access_token,
@@ -288,4 +295,83 @@ export async function GET(req: NextRequest) {
     console.error("[API] resilience/connections unexpected error:", err);
     return NextResponse.json(buildErrorBody(500, sanitizeErrorMessage(err)), { status: 500 });
   }
+}
+
+const releaseMutationSchema = z.object({
+  connectionId: z.string().trim().min(1).optional(),
+  provider: z.string().trim().min(1).optional(),
+  all: z.boolean().optional(),
+  resetBreaker: z.boolean().optional(),
+  clearLockouts: z.boolean().optional(),
+  action: z.enum(["release_cooldown", "reset_breaker"]).optional(),
+  breakerName: z.string().trim().min(1).optional(),
+});
+
+async function handleReleaseMutation(req: NextRequest) {
+  const authError = await requireManagementAuth(req);
+  if (authError) return authError;
+
+  try {
+    const rawBody = await req.json().catch(() => ({}));
+    const parseResult = releaseMutationSchema.safeParse(rawBody);
+    if (!parseResult.success) {
+      return NextResponse.json(
+        buildErrorBody(400, parseResult.error.issues[0]?.message ?? "Invalid request body"),
+        { status: 400 }
+      );
+    }
+    const data = parseResult.data;
+
+    if (data.action === "reset_breaker" || data.breakerName) {
+      const targetBreaker = data.breakerName || data.provider;
+      if (!targetBreaker) {
+        return NextResponse.json(
+          buildErrorBody(400, "breakerName or provider is required for reset_breaker"),
+          { status: 400 }
+        );
+      }
+      const reset = resetCircuitBreakerByName(targetBreaker);
+      return NextResponse.json({ ok: true, reset, breakerName: targetBreaker });
+    }
+
+    if (data.all) {
+      const result = await releaseAllConnections({
+        resetBreaker: data.resetBreaker,
+        clearLockouts: data.clearLockouts,
+      });
+      return NextResponse.json(result);
+    }
+
+    if (data.connectionId) {
+      const result = await releaseSingleConnection(data.connectionId, data.provider, {
+        resetBreaker: data.resetBreaker,
+        clearLockouts: data.clearLockouts,
+      });
+      return NextResponse.json(result);
+    }
+
+    if (data.provider) {
+      const result = await releaseProviderConnections(data.provider, {
+        resetBreaker: data.resetBreaker,
+        clearLockouts: data.clearLockouts,
+      });
+      return NextResponse.json(result);
+    }
+
+    return NextResponse.json(
+      buildErrorBody(400, "Must specify connectionId, provider, or all: true"),
+      { status: 400 }
+    );
+  } catch (err) {
+    console.error("[API] resilience/connections mutation error:", err);
+    return NextResponse.json(buildErrorBody(500, sanitizeErrorMessage(err)), { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  return handleReleaseMutation(req);
+}
+
+export async function DELETE(req: NextRequest) {
+  return handleReleaseMutation(req);
 }
