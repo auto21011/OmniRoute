@@ -300,6 +300,35 @@ describe("ConnectionsTable", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("renders friendly providerName and connection name with full IDs in tooltips", async () => {
+    const { default: Table } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionsTable");
+    const conn = makeConnection({
+      id: "77a185db-e520-4c9a-ae22-9ef9a0b4df38",
+      provider: "openai-compatible-chat-d5cb55e0-b3b3-413d-8d47-aa81659fc152",
+      providerName: "MS_AMD_DEV",
+      name: "Geoffrey21011",
+    });
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <Table connections={[conn]} receivedAt={Date.now()} degraded={[]} />
+      ) as HTMLDivElement;
+    });
+    // Friendly names displayed in table
+    expect(el!.textContent).toContain("MS_AMD_DEV");
+    expect(el!.textContent).toContain("Geoffrey21011");
+    // Tooltips contain full IDs
+    const providerSpan = el!.querySelector(
+      'span[title="openai-compatible-chat-d5cb55e0-b3b3-413d-8d47-aa81659fc152"]'
+    );
+    expect(providerSpan).not.toBeNull();
+    expect(providerSpan?.textContent).toBe("MS_AMD_DEV");
+    const idSpan = el!.querySelector('span[title="77a185db-e520-4c9a-ae22-9ef9a0b4df38"]');
+    expect(idSpan).not.toBeNull();
+    expect(idSpan?.textContent).toBe("Geoffrey21011");
+  });
+
   it("status badge shows correct variant for cooling_down", async () => {
     const { default: Table } =
       await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionsTable");

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getRawProviderConnections, getProviderConnectionsCount } from "@/lib/db/providers";
+import {
+  getRawProviderConnections,
+  getProviderConnectionsCount,
+  getProviderNodes,
+} from "@/lib/db/providers";
 import { getAllCircuitBreakerStatuses } from "@/shared/utils/circuitBreaker";
 import { resolveProviderId } from "@/shared/constants/providers";
 import { TERMINAL_CONNECTION_STATUSES } from "@/lib/quota/connectionRecovery";
@@ -91,10 +95,12 @@ function toConnectionState(
   breakersMap: Map<string, BreakerWithHistory>,
   lockoutsMap: Map<string, ModelLockoutInfo[]>,
   now: number, // server timestamp captured before fetch (avoids drift)
-  rotationByConnection?: Map<string, RotationAccountState[] | null>
+  rotationByConnection?: Map<string, RotationAccountState[] | null>,
+  providerNodesMap?: Map<string, string>
 ): ConnectionState {
   // getRawProviderConnections returns camelCase keys (via rowToCamel)
   const provider = String(row.provider ?? "");
+  const providerName = providerNodesMap?.get(provider) ?? null;
   const breaker = breakersMap.get(resolveProviderId(provider)) ?? null;
   const lockouts = lockoutsMap.get(String(row.id ?? "")) ?? [];
   const testStatus = row.testStatus ? String(row.testStatus).trim().toLowerCase() : null; // normalize to match TERMINAL_CONNECTION_STATUSES
@@ -116,6 +122,7 @@ function toConnectionState(
   return {
     id: String(row.id ?? ""),
     provider,
+    providerName,
     name: row.name != null && row.name !== "" ? String(row.name) : null,
     authType: String(row.authType ?? ""),
     priority: Number(row.priority ?? 0),
@@ -252,8 +259,31 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+    const providerNodesMap = new Map<string, string>();
+    try {
+      const nodes = (await getProviderNodes()) as Array<{
+        id?: unknown;
+        name?: unknown;
+        prefix?: unknown;
+      }>;
+      for (const node of nodes) {
+        const id = typeof node.id === "string" ? node.id.trim() : "";
+        const name =
+          typeof node.name === "string" && node.name.trim()
+            ? node.name.trim()
+            : typeof node.prefix === "string" && node.prefix.trim()
+              ? node.prefix.trim()
+              : "";
+        if (id && name) {
+          providerNodesMap.set(id, name);
+        }
+      }
+    } catch (err) {
+      console.warn("[API] resilience/connections failed to load provider nodes:", err);
+    }
+
     const connections = rawConnections.map((row) =>
-      toConnectionState(row, breakersMap, lockoutsMap, now, rotationByConnection)
+      toConnectionState(row, breakersMap, lockoutsMap, now, rotationByConnection, providerNodesMap)
     );
     // Total count (separate query; falls back to connections.length on failure)
     let totalConnections = connections.length;
