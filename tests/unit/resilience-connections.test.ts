@@ -25,7 +25,8 @@ import * as routeGuard from "../../src/server/authz/routeGuard.ts";
 
 // Import the route AFTER env/db setup so its module-level bindings see the
 // isolated DATA_DIR.
-const { GET } = await import("../../src/app/api/resilience/connections/route.ts");
+import { NextRequest } from "next/server";
+const { GET, POST, DELETE } = await import("../../src/app/api/resilience/connections/route.ts");
 import type { ResilienceConnectionsResponse, ConnectionState } from "../../src/types/resilience.ts";
 
 function makeReq(query = ""): Request {
@@ -365,6 +366,165 @@ test("error response uses buildErrorBody (no raw stack)", async () => {
   assert.equal(res.status, 400);
   const raw = JSON.stringify(await res.json());
   assert.ok(!raw.includes("at /"), "error body must not leak stack traces");
+});
+
+// --- POST / DELETE mutation tests ---------------------------------------------------
+
+test("POST /api/resilience/connections releases single connection cooldown and resets error fields", async () => {
+  const { getProviderConnectionById } = await import("../../src/lib/db/providers.ts");
+  const connId = await seedConnection({
+    provider: "sensenova",
+    authType: "apikey",
+    testStatus: "unavailable",
+    rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+    backoffLevel: 3,
+    errorCode: "429",
+    lastErrorType: "quota_exhausted",
+  });
+
+  const postReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectionId: connId, provider: "sensenova" }),
+  });
+
+  const res = await POST(postReq);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.releasedCount, 1);
+  assert.equal(data.connectionId, connId);
+
+  const updated = await getProviderConnectionById(connId);
+  assert.equal(updated.testStatus, "active");
+  assert.ok(!updated.rateLimitedUntil);
+  assert.equal(updated.backoffLevel ?? 0, 0);
+  assert.ok(!updated.lastError);
+  assert.ok(!updated.errorCode);
+});
+
+test("POST /api/resilience/connections releases provider connections", async () => {
+  const { getProviderConnectionById } = await import("../../src/lib/db/providers.ts");
+  const testProv = "test-prov-multi";
+  const conn1 = await seedConnection({
+    provider: testProv,
+    authType: "apikey",
+    testStatus: "unavailable",
+    rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+    backoffLevel: 2,
+  });
+  const conn2 = await seedConnection({
+    provider: testProv,
+    authType: "apikey",
+    testStatus: "unavailable",
+    rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+    backoffLevel: 1,
+  });
+
+  const postReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: testProv }),
+  });
+
+  const res = await POST(postReq);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.releasedCount, 2);
+
+  const u1 = await getProviderConnectionById(conn1);
+  const u2 = await getProviderConnectionById(conn2);
+  assert.equal(u1.testStatus, "active");
+  assert.equal(u2.testStatus, "active");
+  assert.ok(!u1.rateLimitedUntil);
+  assert.ok(!u2.rateLimitedUntil);
+});
+
+test("POST /api/resilience/connections releases all connections with all: true", async () => {
+  const { getProviderConnectionById } = await import("../../src/lib/db/providers.ts");
+  const conn1 = await seedConnection({
+    provider: "sensenova",
+    authType: "apikey",
+    testStatus: "unavailable",
+    rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+  });
+  const conn2 = await seedConnection({
+    provider: "openai",
+    authType: "apikey",
+    testStatus: "unavailable",
+    rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+  });
+
+  const postReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ all: true }),
+  });
+
+  const res = await POST(postReq);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.ok(data.releasedCount >= 2);
+
+  const u1 = await getProviderConnectionById(conn1);
+  const u2 = await getProviderConnectionById(conn2);
+  assert.equal(u1.testStatus, "active");
+  assert.equal(u2.testStatus, "active");
+});
+
+test("POST /api/resilience/connections resets circuit breaker by name", async () => {
+  const breaker = getCircuitBreaker("sensenova");
+  breaker._tripForTest?.(); // or trip manually
+
+  const postReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "reset_breaker", breakerName: "sensenova" }),
+  });
+
+  const res = await POST(postReq);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.reset, true);
+  assert.equal(data.breakerName, "sensenova");
+});
+
+test("DELETE /api/resilience/connections works identically to POST", async () => {
+  const { getProviderConnectionById } = await import("../../src/lib/db/providers.ts");
+  const connId = await seedConnection({
+    provider: "sensenova",
+    authType: "apikey",
+    testStatus: "unavailable",
+    rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+  });
+
+  const delReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectionId: connId }),
+  });
+
+  const res = await DELETE(delReq);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+
+  const updated = await getProviderConnectionById(connId);
+  assert.equal(updated.testStatus, "active");
+});
+
+test("POST /api/resilience/connections returns 400 when body lacks target", async () => {
+  const postReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  const res = await POST(postReq);
+  assert.equal(res.status, 400);
 });
 
 // --- Reset shared state between tests ----------------------------------------------

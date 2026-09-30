@@ -228,6 +228,44 @@ describe("ResilienceConnectionsClient", () => {
     await waitFor(() => el!.textContent?.includes("openai"));
     expect(el!.textContent).not.toContain('"sources"');
   });
+
+  it("renders clear all cooldowns button when coolingDownCount > 0 and calls POST /api/resilience/connections", async () => {
+    const { default: Client } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ResilienceConnectionsClient");
+    const resp = makeResponse({
+      connections: [makeConnection({ isCoolingDown: true, connectionStatus: "cooling_down" })],
+      coolingDownCount: 1,
+    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(resp), { status: 200 }));
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(<Client />) as HTMLDivElement;
+    });
+    await waitFor(() => el!.textContent?.includes("summary.clearAllCooldowns"));
+    const clearAllBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "summary.clearAllCooldowns"
+    );
+    expect(clearAllBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, releasedCount: 1 }), { status: 200 })
+    );
+
+    act(() => {
+      clearAllBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+      )
+    );
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({ all: true });
+  });
 });
 
 describe("ConnectionsTable", () => {
@@ -407,6 +445,110 @@ describe("ConnectionsTable", () => {
       model: "gpt-4",
       connectionId: "conn-detail-1",
     });
+  });
+
+  it("renders clear cooldown button on cooling down connection and calls POST /api/resilience/connections", async () => {
+    const { default: Table } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionsTable");
+    const conn = makeConnection({
+      id: "conn-cool-1",
+      provider: "sensenova",
+      isCoolingDown: true,
+      connectionStatus: "cooling_down",
+    });
+    const onRefresh = vi.fn();
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <Table connections={[conn]} receivedAt={Date.now()} degraded={[]} onRefresh={onRefresh} />
+      ) as HTMLDivElement;
+    });
+    const clearBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "table.clearCooldown"
+    );
+    expect(clearBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, releasedCount: 1 }), { status: 200 })
+    );
+
+    act(() => {
+      clearBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+      )
+    );
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({
+      connectionId: "conn-cool-1",
+      provider: "sensenova",
+    });
+    await waitFor(() => onRefresh.mock.calls.length > 0);
+  });
+
+  it("renders clear cooldown and restore buttons in ConnectionDetail", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+    const conn = makeConnection({
+      id: "conn-detail-cool",
+      provider: "sensenova",
+      isCoolingDown: true,
+      rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+      breaker: {
+        state: "OPEN",
+        failureCount: 5,
+        retryAfterMs: 30000,
+        lastFailureKind: "rate_limit",
+      },
+    });
+    const onRefresh = vi.fn();
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
+    });
+
+    const clearCooldownBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.clearCooldown"
+    );
+    expect(clearCooldownBtn).toBeTruthy();
+
+    const resetBreakerBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.resetBreaker"
+    );
+    expect(resetBreakerBtn).toBeTruthy();
+
+    const restoreBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.restoreConnection"
+    );
+    expect(restoreBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, releasedCount: 1 }), { status: 200 })
+    );
+
+    act(() => {
+      clearCooldownBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+      )
+    );
+    await waitFor(() => onRefresh.mock.calls.length > 0);
   });
 });
 
