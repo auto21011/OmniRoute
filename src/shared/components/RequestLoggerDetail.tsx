@@ -25,7 +25,6 @@ import {
   isBodySizeLimitOmission,
 } from "@/shared/components/RequestLoggerDetail.sections";
 import { getResilienceBadges } from "@/shared/components/requestLoggerResilience";
-import DisableModelModal from "@/shared/components/DisableModelModal";
 
 // ─── Copy-all composition ────────────────────────────────────────────────────
 // Compose every visible payload section + stream chunk into a single block so
@@ -404,12 +403,6 @@ export default function RequestLoggerDetail({
   const [unblocking, setUnblocking] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
-  const [showDisableModal, setShowDisableModal] = useState(false);
-  const [modelLockout, setModelLockout] = useState<{
-    isLocked: boolean;
-    remainingMs: number;
-    reason?: string;
-  } | null>(null);
 
   // #7920 gave this component formatErrorForDisplay for structured error objects, but the
   // #8213 combo/cooldown checks below went straight to the raw field and call
@@ -419,57 +412,8 @@ export default function RequestLoggerDetail({
   const isCombo503 =
     log.status === 503 && errorText.toLowerCase().includes("all targets exhausted");
   const isModelCooldown = !isCombo503 && errorText.toLowerCase().includes("cooling down");
-  const isEffectiveModelCooldown = (isModelCooldown || modelLockout?.isLocked) && !cleared;
 
   const [unblockAllBusy, setUnblockAllBusy] = useState(false);
-
-  // Check if model is currently locked or in cooldown
-  useEffect(() => {
-    if (!log?.provider || !log?.model) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setModelLockout(null);
-      return;
-    }
-    let isCancelled = false;
-    const checkLockout = async () => {
-      try {
-        const res = await fetch("/api/resilience/model-cooldowns", { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (isCancelled || !Array.isArray(data.items)) return;
-        const matching = data.items.find(
-          (item: any) =>
-            item.provider === log.provider &&
-            item.model === log.model &&
-            (!log.connectionId || !item.connectionId || item.connectionId === log.connectionId)
-        );
-        if (matching && matching.remainingMs > 0) {
-          setModelLockout({
-            isLocked: true,
-            remainingMs: matching.remainingMs,
-            reason: matching.reason,
-          });
-        } else {
-          setModelLockout({ isLocked: false, remainingMs: 0 });
-        }
-      } catch {
-        // best-effort
-      }
-    };
-    void checkLockout();
-    return () => {
-      isCancelled = true;
-    };
-  }, [log?.provider, log?.model, log?.connectionId]);
-
-  const handleModelDisabled = (result: { until: number; durationMs: number }) => {
-    setModelLockout({
-      isLocked: true,
-      remainingMs: result.durationMs,
-      reason: "manual_disable",
-    });
-    setCleared(false);
-  };
 
   const handleUnblockModel = async () => {
     if (!log.provider || !log.model) return;
@@ -478,16 +422,9 @@ export default function RequestLoggerDetail({
       const res = await fetch("/api/resilience/model-cooldowns", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: log.provider,
-          model: log.model,
-          connectionId: log.connectionId || undefined,
-        }),
+        body: JSON.stringify({ provider: log.provider, model: log.model }),
       });
-      if (res.ok) {
-        setCleared(true);
-        setModelLockout({ isLocked: false, remainingMs: 0 });
-      }
+      if (res.ok) setCleared(true);
     } catch {
       /* ignore */
     } finally {
@@ -503,10 +440,7 @@ export default function RequestLoggerDetail({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ all: true }),
       });
-      if (res.ok) {
-        setCleared(true);
-        setModelLockout({ isLocked: false, remainingMs: 0 });
-      }
+      if (res.ok) setCleared(true);
     } catch {
       /* ignore */
     } finally {
@@ -624,55 +558,6 @@ export default function RequestLoggerDetail({
   );
   const accountLabel = maskAccount(detail?.account || log.account, emailsVisible);
   const codexAccountRotation = getCodexAccountRotation(detail);
-
-  const renderModelLockoutActions = () => {
-    if (!log.model || !log.provider) return null;
-    const isLocked = (modelLockout?.isLocked || isModelCooldown) && !cleared;
-
-    if (isLocked) {
-      const remainingMs = modelLockout?.remainingMs ?? 0;
-      return (
-        <div className="inline-flex items-center gap-1.5 flex-wrap">
-          <span
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-            title={modelLockout?.reason ? `Reason: ${modelLockout.reason}` : undefined}
-          >
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 1a3 3 0 0 0-3 3v2H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-1V4a3 3 0 0 0-3-3zm1 5V4a1 1 0 0 0-2 0v2h2z" />
-            </svg>
-            <span>
-              {t("modelDisabled")}
-              {remainingMs > 0 ? ` (${formatDuration(remainingMs)})` : ""}
-            </span>
-          </span>
-          <button
-            type="button"
-            onClick={handleUnblockModel}
-            disabled={unblocking}
-            className="px-2 py-0.5 text-[10px] font-medium rounded border border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
-          >
-            {unblocking ? "..." : t("unblock")}
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        onClick={() => setShowDisableModal(true)}
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium border border-border/80 text-text-muted hover:text-text-primary hover:bg-bg-subtle hover:border-amber-500/50 transition-all"
-        title={t("disableModelTitle")}
-      >
-        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
-          <path d="M5 6.25a1.25 1.25 0 1 1 2.5 0v3.5a1.25 1.25 0 1 1-2.5 0v-3.5zm3.5 0a1.25 1.25 0 1 1 2.5 0v3.5a1.25 1.25 0 1 1-2.5 0v-3.5z" />
-        </svg>
-        <span>{t("disableModel")}</span>
-      </button>
-    );
-  };
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center px-2 pt-[5vh] sm:px-4"
@@ -815,10 +700,7 @@ export default function RequestLoggerDetail({
                 <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
                   {t("model")}
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-primary font-mono">{log.model}</span>
-                  {renderModelLockoutActions()}
-                </div>
+                <div className="text-sm font-medium text-primary font-mono">{log.model}</div>
               </div>
               <div className="min-w-[120px] flex-1">
                 <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
@@ -940,10 +822,7 @@ export default function RequestLoggerDetail({
                 <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
                   {t("model")}
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-primary font-mono">{log.model}</span>
-                  {renderModelLockoutActions()}
-                </div>
+                <div className="text-sm font-medium text-primary font-mono">{log.model}</div>
               </div>
               <div>
                 <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
@@ -1129,7 +1008,7 @@ export default function RequestLoggerDetail({
                     {t("cleared")}
                   </span>
                 )}
-                {isEffectiveModelCooldown && (
+                {isModelCooldown && !cleared && (
                   <button
                     onClick={handleUnblockModel}
                     disabled={unblocking}
@@ -1154,22 +1033,7 @@ export default function RequestLoggerDetail({
                     {unblocking ? "..." : t("unblock")}
                   </button>
                 )}
-                {!isCombo503 && !isEffectiveModelCooldown && log.model && log.provider && (
-                  <button
-                    onClick={() => setShowDisableModal(true)}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-lg
-                      bg-amber-500/10 border border-amber-500/30 text-amber-600
-                      hover:bg-amber-500/15 hover:border-amber-500/50
-                      dark:text-amber-400 transition-all duration-200"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
-                      <path d="M5 6.25a1.25 1.25 0 1 1 2.5 0v3.5a1.25 1.25 0 1 1-2.5 0v-3.5zm3.5 0a1.25 1.25 0 1 1 2.5 0v3.5a1.25 1.25 0 1 1-2.5 0v-3.5z" />
-                    </svg>
-                    {t("disableModel")}
-                  </button>
-                )}
-                {cleared && (
+                {isModelCooldown && cleared && (
                   <span className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400">
                     <svg
                       width="10"
@@ -1371,17 +1235,6 @@ export default function RequestLoggerDetail({
           )}
         </div>
       </div>
-      {showDisableModal && log.model && log.provider && (
-        <DisableModelModal
-          isOpen={showDisableModal}
-          onClose={() => setShowDisableModal(false)}
-          provider={log.provider}
-          model={log.model}
-          connectionId={log.connectionId || detail?.connectionId}
-          accountLabel={accountLabel}
-          onDisabled={handleModelDisabled}
-        />
-      )}
     </div>
   );
 }
