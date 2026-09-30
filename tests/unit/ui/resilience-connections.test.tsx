@@ -843,7 +843,11 @@ describe("ConnectionDetail advanced operations", () => {
                     isHidden: true,
                   },
                 ],
-                modelCompatOverrides: [{ modelId: "deepseek-v4-flash", isHidden: true }],
+                modelCompatOverrides: [
+                  { modelId: "deepseek-v4-flash", isHidden: true },
+                  { id: "sensenova-6.7-flash-lite", isHidden: true },
+                  { id: "compat-scoped-hidden", hiddenModalities: { chat: true } },
+                ],
                 hiddenModelsByProvider: {
                   sensenova: ["deepseek-v4-flash", "sensenova-hidden-imported"],
                 },
@@ -857,7 +861,10 @@ describe("ConnectionDetail advanced operations", () => {
             new Response(
               JSON.stringify({
                 providerId: "sensenova",
-                models: [{ id: "sensenova-synced-1", name: "SenseNova Synced" }],
+                models: [
+                  { id: "sensenova-synced-1", name: "SenseNova Synced" },
+                  { id: "compat-scoped-hidden", name: "Scoped Hidden" },
+                ],
                 authoritative: false,
               }),
               { status: 200 }
@@ -899,9 +906,13 @@ describe("ConnectionDetail advanced operations", () => {
       // Synced model MUST be present
       expect(options).toContain("sensenova-synced-1");
       // Non-hidden static model MUST be present
-      expect(options).toContain("sensenova-6.7-flash-lite");
+      expect(options).toContain("glm-5.2");
 
-      // Hidden static model MUST NOT be present
+      // Hidden static model via modelCompatOverrides (with .id property) MUST NOT be present
+      expect(options).not.toContain("sensenova-6.7-flash-lite");
+      // Hidden model via hiddenModalities.chat MUST NOT be present
+      expect(options).not.toContain("compat-scoped-hidden");
+      // Hidden static model via modelCompatOverrides (with .modelId property) MUST NOT be present
       expect(options).not.toContain("deepseek-v4-flash");
       // Hidden imported model MUST NOT be present
       expect(options).not.toContain("sensenova-hidden-imported");

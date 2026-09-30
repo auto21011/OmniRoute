@@ -6,12 +6,8 @@ import Badge from "@/shared/components/Badge";
 import type { ConnectionState } from "@/types/resilience";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
 import { useNotificationStore } from "@/store/notificationStore";
-import { getModelsByProviderId } from "@/shared/constants/models";
-import { mergeProviderModelListing } from "@/lib/providers/mergeProviderModelListing";
-import {
-  isOpenAICompatibleProvider,
-  isAnthropicCompatibleProvider,
-} from "@/shared/constants/providers";
+import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
+import { resolveProviderId } from "@/shared/constants/providers";
 
 const DURATION_PRESETS = [
   { labelKey: "duration5m", ms: 5 * 60 * 1000 },
@@ -51,19 +47,8 @@ export default function ConnectionDetail({
   const [lockoutModel, setLockoutModel] = useState("");
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [customModelText, setCustomModelText] = useState("");
-  const [providerModelMeta, setProviderModelMeta] = useState<{
-    customModels: Array<{ id: string; name?: string; source?: string; isHidden?: boolean }>;
-    syncedModels: Array<{ id: string; name?: string }>;
-    syncedCatalogAuthoritative: boolean;
-    hiddenModelIds: Set<string>;
-    loaded: boolean;
-  }>({
-    customModels: [],
-    syncedModels: [],
-    syncedAuthoritative: false,
-    hiddenModelIds: new Set(),
-    loaded: false,
-  });
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name?: string }>>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [lockoutDuration, setLockoutDuration] = useState(5 * 60 * 1000);
   const [lockoutScope, setLockoutScope] = useState<"connection" | "provider">("connection");
   const [isSubmittingLockout, setIsSubmittingLockout] = useState(false);
@@ -95,116 +80,194 @@ export default function ConnectionDetail({
       return;
     }
     if (process.env.NODE_ENV === "test" && !(globalThis as any).__TEST_ENABLE_MODEL_FETCH__) {
+      const registryModels = getModelsByProviderId(connection.provider) || [];
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAvailableModels(registryModels.map((m) => ({ id: m.id, name: m.name || m.id })));
+      setIsLoadingModels(false);
       return;
     }
+
     let cancelled = false;
     const providerId = connection.provider;
     const connectionId = connection.id;
 
     async function loadModels() {
+      setIsLoadingModels(true);
       try {
-        const [metaRes, syncRes] = await Promise.allSettled([
+        const [metaRes, syncRes, liveRes] = await Promise.allSettled([
           fetch(`/api/provider-models?provider=${encodeURIComponent(providerId)}`, {
             cache: "no-store",
           }),
           fetch(`/api/synced-available-models?provider=${encodeURIComponent(providerId)}`, {
             cache: "no-store",
           }),
+          connectionId
+            ? fetch(
+                `/api/providers/${encodeURIComponent(connectionId)}/models?excludeHidden=true&chatOnly=true`,
+                { cache: "no-store" }
+              )
+            : Promise.reject(new Error("No connection ID")),
         ]);
 
         if (cancelled) return;
 
-        let customModels: Array<{
+        // 1. Gather all hidden model IDs for this provider
+        const hiddenModelIds = new Set<string>();
+        let customModelsList: Array<{
           id: string;
           name?: string;
           source?: string;
           isHidden?: boolean;
         }> = [];
-        const hiddenModelIds = new Set<string>();
 
         if (metaRes.status === "fulfilled" && metaRes.value.ok) {
           const metaData = await metaRes.value.json().catch(() => null);
           if (metaData) {
-            if (Array.isArray(metaData.models)) {
-              customModels = metaData.models;
-              for (const m of metaData.models) {
-                if (m && typeof m.id === "string" && m.isHidden === true) {
-                  hiddenModelIds.add(m.id.trim());
-                }
-              }
-            }
+            // Check hiddenModelsByProvider
             if (
               metaData.hiddenModelsByProvider &&
               typeof metaData.hiddenModelsByProvider === "object"
             ) {
-              const list = metaData.hiddenModelsByProvider[providerId];
-              if (Array.isArray(list)) {
-                for (const id of list) {
-                  if (typeof id === "string" && id.trim()) hiddenModelIds.add(id.trim());
+              const keysToCheck = [
+                providerId,
+                resolveProviderId(providerId),
+                (PROVIDER_ID_TO_ALIAS as Record<string, string>)[providerId],
+              ].filter((k): k is string => Boolean(k));
+              for (const key of keysToCheck) {
+                const list = metaData.hiddenModelsByProvider[key];
+                if (Array.isArray(list)) {
+                  for (const id of list) {
+                    if (typeof id === "string" && id.trim()) hiddenModelIds.add(id.trim());
+                  }
                 }
               }
             }
+
+            // Check modelCompatOverrides (id or modelId, isHidden or hiddenModalities.chat)
             if (Array.isArray(metaData.modelCompatOverrides)) {
               for (const o of metaData.modelCompatOverrides) {
-                if (o && typeof o.modelId === "string" && o.isHidden === true) {
-                  hiddenModelIds.add(o.modelId.trim());
+                if (!o) continue;
+                const mid =
+                  typeof o.id === "string"
+                    ? o.id.trim()
+                    : typeof o.modelId === "string"
+                      ? o.modelId.trim()
+                      : "";
+                if (!mid) continue;
+                if (o.isHidden === true || o.hiddenModalities?.chat === true) {
+                  hiddenModelIds.add(mid);
+                }
+              }
+            }
+
+            // Check custom models (id or modelId, isHidden or hiddenModalities.chat)
+            if (Array.isArray(metaData.models)) {
+              customModelsList = metaData.models;
+              for (const m of metaData.models) {
+                if (!m) continue;
+                const mid =
+                  typeof m.id === "string"
+                    ? m.id.trim()
+                    : typeof m.modelId === "string"
+                      ? m.modelId.trim()
+                      : "";
+                if (!mid) continue;
+                if (m.isHidden === true || m.hiddenModalities?.chat === true) {
+                  hiddenModelIds.add(mid);
                 }
               }
             }
           }
         }
 
-        let syncedModels: Array<{ id: string; name?: string }> = [];
-        let syncedCatalogAuthoritative = false;
+        // 2. Determine candidate models
+        const candidateMap = new Map<string, { id: string; name?: string }>();
 
-        if (syncRes.status === "fulfilled" && syncRes.value.ok) {
-          const syncData = await syncRes.value.json().catch(() => null);
-          if (syncData) {
-            if (Array.isArray(syncData.models)) {
-              syncedModels = syncData.models;
-            }
-            if (syncData.authoritative === true) {
-              syncedCatalogAuthoritative = true;
+        // Prefer liveRes if it returned an array of models
+        if (liveRes.status === "fulfilled" && liveRes.value.ok) {
+          const liveData = await liveRes.value.json().catch(() => null);
+          if (liveData && Array.isArray(liveData.models)) {
+            for (const m of liveData.models) {
+              const id = String(m?.id || m?.modelId || m?.name || "").trim();
+              if (id) {
+                candidateMap.set(id, {
+                  id,
+                  name: String(m?.name || m?.id || id).trim(),
+                });
+              }
             }
           }
         }
 
-        // For compatible providers with no custom or synced models yet, attempt live discovery
-        if (
-          customModels.length === 0 &&
-          syncedModels.length === 0 &&
-          connectionId &&
-          (isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId))
-        ) {
-          try {
-            const liveRes = await fetch(
-              `/api/providers/${encodeURIComponent(connectionId)}/models?excludeHidden=true&chatOnly=true`
-            );
-            if (liveRes.ok) {
-              const liveData = await liveRes.json().catch(() => null);
-              if (liveData && Array.isArray(liveData.models)) {
-                syncedModels = liveData.models.map((m: any) => ({
-                  id: m.id || m.name,
-                  name: m.name || m.id,
-                }));
+        // Add synced models
+        if (syncRes.status === "fulfilled" && syncRes.value.ok) {
+          const syncData = await syncRes.value.json().catch(() => null);
+          if (syncData && Array.isArray(syncData.models)) {
+            for (const m of syncData.models) {
+              const id = String(m?.id || m?.name || "").trim();
+              if (id && !candidateMap.has(id)) {
+                candidateMap.set(id, {
+                  id,
+                  name: String(m?.name || m?.id || id).trim(),
+                });
               }
             }
-          } catch {
-            // Ignore live discovery failure
+          }
+        }
+
+        // Add custom models
+        for (const cm of customModelsList) {
+          if (cm?.id && typeof cm.id === "string") {
+            const id = cm.id.trim();
+            if (id && !candidateMap.has(id)) {
+              candidateMap.set(id, {
+                id,
+                name: cm.name ? cm.name.trim() : id,
+              });
+            }
+          }
+        }
+
+        // Add registry models
+        const registryModels = getModelsByProviderId(providerId) || [];
+        for (const rm of registryModels) {
+          if (rm?.id && typeof rm.id === "string") {
+            const id = rm.id.trim();
+            if (id && !candidateMap.has(id)) {
+              candidateMap.set(id, {
+                id,
+                name: rm.name ? rm.name.trim() : id,
+              });
+            }
+          }
+        }
+
+        // 3. Filter out hidden models
+        const filteredMap = new Map<string, { id: string; name?: string }>();
+        for (const [id, m] of candidateMap.entries()) {
+          if (hiddenModelIds.has(id)) continue;
+          filteredMap.set(id, m);
+        }
+
+        // 4. Also keep any existing connection lockouts visible if not explicitly hidden
+        for (const l of connection?.lockouts || []) {
+          if (l?.model && typeof l.model === "string") {
+            const id = l.model.trim();
+            if (id && !hiddenModelIds.has(id) && !filteredMap.has(id)) {
+              filteredMap.set(id, { id, name: id });
+            }
           }
         }
 
         if (!cancelled) {
-          setProviderModelMeta({
-            customModels,
-            syncedModels,
-            syncedCatalogAuthoritative,
-            hiddenModelIds,
-            loaded: true,
-          });
+          setAvailableModels(Array.from(filteredMap.values()));
+          setIsLoadingModels(false);
         }
       } catch (err) {
         console.warn("[ConnectionDetail] Failed to load provider models:", err);
+        if (!cancelled) {
+          setIsLoadingModels(false);
+        }
       }
     }
 
@@ -212,40 +275,14 @@ export default function ConnectionDetail({
     return () => {
       cancelled = true;
     };
-  }, [connection?.provider, connection?.id]);
+  }, [connection?.provider, connection?.id, connection?.lockouts]);
 
-  const registryModels = connection?.provider
-    ? getModelsByProviderId(connection.provider) || []
-    : [];
-  const mergedListing = mergeProviderModelListing({
-    providerId: connection?.provider || "",
-    registryModels,
-    syncedModels: providerModelMeta.syncedModels,
-    syncedCatalogAuthoritative: providerModelMeta.syncedCatalogAuthoritative,
-    customModels: providerModelMeta.customModels,
-  });
-
-  const modelMap = new Map<string, { id: string; name?: string }>();
-  for (const m of mergedListing) {
-    if (m?.id && typeof m.id === "string") {
-      const id = m.id.trim();
-      if (!id) continue;
-      if (providerModelMeta.hiddenModelIds.has(id)) continue;
-      if ((m as any).isHidden === true) continue;
-      modelMap.set(id, { id, name: typeof m.name === "string" ? m.name : id });
+  useEffect(() => {
+    if (!isLoadingModels && isAddingLockout && !isCustomModel && availableModels.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsCustomModel(true);
     }
-  }
-
-  for (const l of connection?.lockouts || []) {
-    if (l?.model && typeof l.model === "string") {
-      const id = l.model.trim();
-      if (id && !providerModelMeta.hiddenModelIds.has(id) && !modelMap.has(id)) {
-        modelMap.set(id, { id, name: id });
-      }
-    }
-  }
-
-  const availableModels = Array.from(modelMap.values());
+  }, [isLoadingModels, isAddingLockout, isCustomModel, availableModels.length]);
 
   const effectiveModel = isCustomModel ? customModelText.trim() : lockoutModel.trim();
 
@@ -837,6 +874,7 @@ export default function ConnectionDetail({
                   setLockoutModel(val);
                 }
               }}
+              disabled={isLoadingModels}
               style={{
                 width: "100%",
                 padding: "4px 8px",
@@ -848,7 +886,9 @@ export default function ConnectionDetail({
                 boxSizing: "border-box",
               }}
             >
-              <option value="">{t("detail.selectModelPlaceholder")}</option>
+              <option value="">
+                {isLoadingModels ? "..." : t("detail.selectModelPlaceholder")}
+              </option>
               {availableModels.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id}
