@@ -7,7 +7,6 @@ import EmptyState from "@/shared/components/EmptyState";
 import { useNotificationStore } from "@/store/notificationStore";
 import ConnectionsTable from "./ConnectionsTable";
 import BreakerTimeline from "./BreakerTimeline";
-import LockedModelsCard from "./LockedModelsCard";
 
 const POLL_INTERVAL_MS = 30000;
 
@@ -189,11 +188,6 @@ export default function ResilienceConnectionsClient() {
     }
   };
 
-  const totalLockedModels = (data.connections || []).reduce(
-    (acc, c) => acc + (c.lockouts?.length || 0),
-    0
-  );
-
   return (
     <>
       {errorBanner}
@@ -221,7 +215,6 @@ export default function ResilienceConnectionsClient() {
           </span>
           <span>{t("summary.coolingDown", { count: data.meta.coolingDownCount })}</span>
           <span>{t("summary.unhealthyBreakers", { count: data.meta.unhealthyBreakerCount })}</span>
-          <span>{t("summary.lockedModels", { count: totalLockedModels })}</span>
         </div>
         {data.meta.coolingDownCount > 0 && (
           <button
@@ -258,12 +251,6 @@ export default function ResilienceConnectionsClient() {
         </div>
       )}
       <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{t("pollingNote")}</div>
-      <LockedModelsCard
-        connections={data.connections}
-        onRelease={() => {
-          void fetchData(windowMs);
-        }}
-      />
       <ConnectionsTable
         connections={data.connections}
         receivedAt={data.receivedAt ?? 0}

@@ -488,6 +488,8 @@ describe("ConnectionsTable", () => {
     expect(JSON.parse((postCall![1] as any).body)).toEqual({
       connectionId: "conn-cool-1",
       provider: "sensenova",
+      resetBreaker: true,
+      clearLockouts: true,
     });
     await waitFor(() => onRefresh.mock.calls.length > 0);
   });
@@ -552,7 +554,7 @@ describe("ConnectionsTable", () => {
   });
 });
 
-describe("LockedModelsCard", () => {
+describe("ConnectionDetail advanced operations", () => {
   let fetchMock: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -570,94 +572,165 @@ describe("LockedModelsCard", () => {
     containers.length = 0;
   });
 
-  it("renders locked models from props fallback and releases one model", async () => {
-    const { default: LockedModelsCard } =
-      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/LockedModelsCard");
+  it("submits disable model form calling POST /api/resilience/model-cooldowns", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
     const conn = makeConnection({
       id: "conn-lock-1",
       provider: "anthropic",
-      lockouts: [{ model: "claude-3-haiku", reason: "manual_disable", remainingMs: 60000 }],
+      lockouts: [],
     });
-    fetchMock.mockRejectedValueOnce(new Error("Network error"));
+    const onRefresh = vi.fn();
 
     let el: HTMLDivElement;
     act(() => {
-      el = render(<LockedModelsCard connections={[conn]} />) as HTMLDivElement;
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
     });
 
-    await waitFor(() => el!.textContent?.includes("claude-3-haiku"));
-    expect(el!.textContent).toContain("anthropic");
-    expect(el!.textContent).toContain("claude-3-haiku");
-
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true, removed: true }), { status: 200 })
+    const disableBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("detail.disableModel")
     );
-
-    const releaseBtn = Array.from(el!.querySelectorAll("button")).find(
-      (b) => b.textContent === "lockedModelsCard.release"
-    );
-    expect(releaseBtn).toBeTruthy();
+    expect(disableBtn).toBeTruthy();
 
     act(() => {
-      releaseBtn!.click();
+      disableBtn!.click();
+    });
+
+    const input = el!.querySelector("input[type='text']") as HTMLInputElement;
+    expect(input).toBeTruthy();
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      setter?.call(input, "claude-3-opus");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, lockedCount: 1, until: Date.now() + 300000 }), {
+        status: 200,
+      })
+    );
+
+    const form = el!.querySelector("form");
+    expect(form).toBeTruthy();
+
+    act(() => {
+      form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
 
     await waitFor(() =>
       fetchMock.mock.calls.some(
-        (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "DELETE"
+        (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
       )
     );
-    const deleteCall = fetchMock.mock.calls.find(
-      (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "DELETE"
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
     );
-    expect(deleteCall).toBeTruthy();
-    expect(JSON.parse((deleteCall![1] as any).body)).toEqual({
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({
       provider: "anthropic",
-      model: "claude-3-haiku",
+      model: "claude-3-opus",
+      durationMs: 300000,
       connectionId: "conn-lock-1",
+      scope: "connection",
+      reason: "manual_disable",
     });
+    await waitFor(() => onRefresh.mock.calls.length > 0);
   });
 
-  it("clicking release all calls DELETE /api/resilience/model-cooldowns with { all: true }", async () => {
-    const { default: LockedModelsCard } =
-      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/LockedModelsCard");
+  it("submits manual cooldown and trip breaker in ConnectionDetail", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
     const conn = makeConnection({
-      id: "conn-lock-2",
+      id: "conn-healthy-1",
       provider: "openai",
-      lockouts: [{ model: "gpt-4o", reason: "rate_limit", remainingMs: 30000 }],
+      isCoolingDown: false,
+      breaker: {
+        state: "CLOSED",
+        failureCount: 0,
+        retryAfterMs: 0,
+        lastFailureKind: null,
+      },
     });
-    fetchMock.mockRejectedValueOnce(new Error("Network error"));
+    const onRefresh = vi.fn();
 
     let el: HTMLDivElement;
     act(() => {
-      el = render(<LockedModelsCard connections={[conn]} />) as HTMLDivElement;
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
     });
 
-    await waitFor(() => el!.textContent?.includes("gpt-4o"));
-
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true, clearedAll: true }), { status: 200 })
+    // 1. Manual cooldown
+    const cooldownBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("detail.manualCooldown")
     );
-
-    const releaseAllBtn = Array.from(el!.querySelectorAll("button")).find(
-      (b) => b.textContent === "lockedModelsCard.releaseAll"
-    );
-    expect(releaseAllBtn).toBeTruthy();
+    expect(cooldownBtn).toBeTruthy();
 
     act(() => {
-      releaseAllBtn!.click();
+      cooldownBtn!.click();
+    });
+
+    const confirmCooldownBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.confirmCooldown"
+    );
+    expect(confirmCooldownBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, connectionId: "conn-healthy-1" }), { status: 200 })
+    );
+
+    act(() => {
+      confirmCooldownBtn!.click();
     });
 
     await waitFor(() =>
       fetchMock.mock.calls.some(
-        (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "DELETE"
+        (c) =>
+          c[0] === "/api/resilience/connections" &&
+          (c[1] as any)?.method === "POST" &&
+          JSON.parse((c[1] as any).body).action === "set_cooldown"
       )
     );
-    const deleteCall = fetchMock.mock.calls.find(
-      (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "DELETE"
+
+    // 2. Manual trip breaker
+    const tripBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.manualTrip"
     );
-    expect(deleteCall).toBeTruthy();
-    expect(JSON.parse((deleteCall![1] as any).body)).toEqual({ all: true });
+    expect(tripBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, tripped: true }), { status: 200 })
+    );
+
+    act(() => {
+      tripBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) =>
+          c[0] === "/api/resilience/connections" &&
+          (c[1] as any)?.method === "POST" &&
+          JSON.parse((c[1] as any).body).action === "trip_breaker"
+      )
+    );
   });
 });
 

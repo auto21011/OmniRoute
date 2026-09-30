@@ -527,6 +527,52 @@ test("POST /api/resilience/connections returns 400 when body lacks target", asyn
   assert.equal(res.status, 400);
 });
 
+test("POST /api/resilience/connections sets connection cooldown with action: 'set_cooldown'", async () => {
+  const connId = await seedConnection({
+    provider: "openai",
+    name: "test-cooldown",
+    testStatus: "active",
+  });
+
+  const postReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "set_cooldown", connectionId: connId, durationMs: 120000 }),
+  });
+
+  const res = await POST(postReq);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.connectionId, connId);
+  assert.ok(data.rateLimitedUntil);
+
+  const { getProviderConnectionById } = await import("../../src/lib/db/providers.ts");
+  const updated = await getProviderConnectionById(connId);
+  assert.equal(updated.testStatus, "unavailable");
+  assert.ok(updated.rateLimitedUntil);
+});
+
+test("POST /api/resilience/connections trips circuit breaker with action: 'trip_breaker'", async () => {
+  const provBreaker = getCircuitBreaker("anthropic");
+  provBreaker.reset();
+  assert.equal(provBreaker.state, "CLOSED");
+
+  const postReq = new NextRequest("http://localhost/api/resilience/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "trip_breaker", breakerName: "anthropic" }),
+  });
+
+  const res = await POST(postReq);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.tripped, true);
+
+  assert.equal(provBreaker.state, "OPEN");
+});
+
 // --- Reset shared state between tests ----------------------------------------------
 
 test.beforeEach(() => {

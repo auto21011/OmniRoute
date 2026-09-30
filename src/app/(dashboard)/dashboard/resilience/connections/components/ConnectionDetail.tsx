@@ -7,6 +7,15 @@ import type { ConnectionState } from "@/types/resilience";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
 import { useNotificationStore } from "@/store/notificationStore";
 
+const DURATION_PRESETS = [
+  { labelKey: "duration5m", ms: 5 * 60 * 1000 },
+  { labelKey: "duration15m", ms: 15 * 60 * 1000 },
+  { labelKey: "duration30m", ms: 30 * 60 * 1000 },
+  { labelKey: "duration1h", ms: 60 * 60 * 1000 },
+  { labelKey: "duration6h", ms: 6 * 60 * 1000 },
+  { labelKey: "duration24h", ms: 24 * 60 * 1000 },
+] as const;
+
 interface ConnectionDetailProps {
   connection: ConnectionState | undefined; // undefined when connection deleted
   receivedAt: number; // client fetch receive time (immune to clock skew)
@@ -30,6 +39,21 @@ export default function ConnectionDetail({
   const [isClearingCooldown, setIsClearingCooldown] = useState(false);
   const [isResettingBreaker, setIsResettingBreaker] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+
+  // Model lockout creation
+  const [isAddingLockout, setIsAddingLockout] = useState(false);
+  const [lockoutModel, setLockoutModel] = useState("");
+  const [lockoutDuration, setLockoutDuration] = useState(5 * 60 * 1000);
+  const [lockoutScope, setLockoutScope] = useState<"connection" | "provider">("connection");
+  const [isSubmittingLockout, setIsSubmittingLockout] = useState(false);
+
+  // Manual connection cooldown
+  const [isSettingCooldown, setIsSettingCooldown] = useState(false);
+  const [cooldownDuration, setCooldownDuration] = useState(5 * 60 * 1000);
+  const [isSubmittingCooldown, setIsSubmittingCooldown] = useState(false);
+
+  // Manual breaker trip
+  const [isTrippingBreaker, setIsTrippingBreaker] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -188,6 +212,95 @@ export default function ConnectionDetail({
     }
   };
 
+  const handleDisableModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!connection || !lockoutModel.trim()) return;
+    setIsSubmittingLockout(true);
+    try {
+      const res = await fetch("/api/resilience/model-cooldowns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: connection.provider,
+          model: lockoutModel.trim(),
+          durationMs: lockoutDuration,
+          connectionId: lockoutScope === "connection" ? connection.id : undefined,
+          scope: lockoutScope,
+          reason: "manual_disable",
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      notify.success(t("detail.disableSuccess", { model: lockoutModel.trim() }));
+      setIsAddingLockout(false);
+      setLockoutModel("");
+      onRefresh?.();
+    } catch (err) {
+      console.error("[ConnectionDetail] Failed to disable model:", err);
+      notify.error(err instanceof Error ? err.message : "Failed to disable model");
+    } finally {
+      setIsSubmittingLockout(false);
+    }
+  };
+
+  const handleManualCooldown = async () => {
+    if (!connection) return;
+    setIsSubmittingCooldown(true);
+    try {
+      const res = await fetch("/api/resilience/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_cooldown",
+          connectionId: connection.id,
+          durationMs: cooldownDuration,
+          reason: "manual_cooldown",
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
+      }
+      notify.success(t("detail.setCooldownSuccess"));
+      setIsSettingCooldown(false);
+      onRefresh?.();
+    } catch (err) {
+      console.error("[ConnectionDetail] Failed to set cooldown:", err);
+      notify.error(err instanceof Error ? err.message : "Failed to set cooldown");
+    } finally {
+      setIsSubmittingCooldown(false);
+    }
+  };
+
+  const handleTripBreaker = async () => {
+    if (!connection) return;
+    setIsTrippingBreaker(true);
+    try {
+      const res = await fetch("/api/resilience/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "trip_breaker",
+          breakerName: connection.provider,
+          reason: "manual_trip",
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
+      }
+      notify.success(t("detail.tripBreakerSuccess"));
+      onRefresh?.();
+    } catch (err) {
+      console.error("[ConnectionDetail] Failed to trip breaker:", err);
+      notify.error(err instanceof Error ? err.message : "Failed to trip breaker");
+    } finally {
+      setIsTrippingBreaker(false);
+    }
+  };
+
   const isDegraded =
     connection.isCoolingDown ||
     connection.rateLimitedUntil != null ||
@@ -250,28 +363,126 @@ export default function ConnectionDetail({
       <hr />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3>{t("detail.cooldown")}</h3>
-        {(connection.isCoolingDown ||
+        <div style={{ display: "flex", gap: "6px" }}>
+          {connection.isCoolingDown ||
           connection.rateLimitedUntil != null ||
-          connection.testStatus === "unavailable") && (
-          <button
-            type="button"
-            onClick={() => void handleClearCooldown()}
-            disabled={isClearingCooldown}
-            style={{
-              padding: "3px 10px",
-              fontSize: "11px",
-              fontWeight: 500,
-              borderRadius: "4px",
-              border: "1px solid rgba(245,158,11,0.4)",
-              background: "rgba(245,158,11,0.15)",
-              color: "var(--color-warning, #d97706)",
-              cursor: isClearingCooldown ? "not-allowed" : "pointer",
-            }}
-          >
-            {isClearingCooldown ? t("detail.clearingCooldown") : t("detail.clearCooldown")}
-          </button>
-        )}
+          connection.testStatus === "unavailable" ? (
+            <button
+              type="button"
+              onClick={() => void handleClearCooldown()}
+              disabled={isClearingCooldown}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 500,
+                borderRadius: "4px",
+                border: "1px solid rgba(245,158,11,0.4)",
+                background: "rgba(245,158,11,0.15)",
+                color: "var(--color-warning, #d97706)",
+                cursor: isClearingCooldown ? "not-allowed" : "pointer",
+              }}
+            >
+              {isClearingCooldown ? t("detail.clearingCooldown") : t("detail.clearCooldown")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsSettingCooldown(!isSettingCooldown)}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 500,
+                borderRadius: "4px",
+                border: "1px solid var(--color-border)",
+                background: "var(--color-bg-subtle, rgba(0,0,0,0.05))",
+                color: "var(--color-text-main)",
+                cursor: "pointer",
+              }}
+            >
+              {isSettingCooldown ? t("detail.cancel") : `+ ${t("detail.manualCooldown")}`}
+            </button>
+          )}
+        </div>
       </div>
+      {isSettingCooldown && (
+        <div
+          style={{
+            margin: "8px 0",
+            padding: "10px",
+            borderRadius: "6px",
+            background: "var(--color-bg-subtle, rgba(0,0,0,0.03))",
+            border: "1px solid var(--color-border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "12px", color: "var(--color-text-muted)" }}>
+              {t("detail.duration")}:
+            </span>
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              {DURATION_PRESETS.map((d) => (
+                <button
+                  key={d.ms}
+                  type="button"
+                  onClick={() => setCooldownDuration(d.ms)}
+                  style={{
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    borderRadius: "4px",
+                    border:
+                      cooldownDuration === d.ms
+                        ? "1px solid var(--color-primary, #6366f1)"
+                        : "1px solid var(--color-border)",
+                    background: cooldownDuration === d.ms ? "rgba(99,102,241,0.15)" : "transparent",
+                    color:
+                      cooldownDuration === d.ms
+                        ? "var(--color-primary, #6366f1)"
+                        : "var(--color-text-main)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {t(`detail.${d.labelKey}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => setIsSettingCooldown(false)}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                borderRadius: "4px",
+                border: "1px solid var(--color-border)",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            >
+              {t("detail.cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleManualCooldown()}
+              disabled={isSubmittingCooldown}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 500,
+                borderRadius: "4px",
+                border: "1px solid var(--color-warning, #d97706)",
+                background: "rgba(245,158,11,0.15)",
+                color: "var(--color-warning, #d97706)",
+                cursor: isSubmittingCooldown ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSubmittingCooldown ? "..." : t("detail.confirmCooldown")}
+            </button>
+          </div>
+        </div>
+      )}
       <div>
         {t("detail.rateLimitedUntil")}: {connection.rateLimitedUntil ?? t("detail.never")}
       </div>
@@ -285,25 +496,45 @@ export default function ConnectionDetail({
       <hr />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3>{t("detail.breaker")}</h3>
-        {connection.breaker && connection.breaker.state !== "CLOSED" && (
-          <button
-            type="button"
-            onClick={() => void handleResetBreaker()}
-            disabled={isResettingBreaker}
-            style={{
-              padding: "3px 10px",
-              fontSize: "11px",
-              fontWeight: 500,
-              borderRadius: "4px",
-              border: "1px solid rgba(239,68,68,0.4)",
-              background: "rgba(239,68,68,0.15)",
-              color: "var(--color-error, #ef4444)",
-              cursor: isResettingBreaker ? "not-allowed" : "pointer",
-            }}
-          >
-            {isResettingBreaker ? t("detail.resettingBreaker") : t("detail.resetBreaker")}
-          </button>
-        )}
+        <div style={{ display: "flex", gap: "6px" }}>
+          {connection.breaker && connection.breaker.state !== "CLOSED" ? (
+            <button
+              type="button"
+              onClick={() => void handleResetBreaker()}
+              disabled={isResettingBreaker}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 500,
+                borderRadius: "4px",
+                border: "1px solid rgba(239,68,68,0.4)",
+                background: "rgba(239,68,68,0.15)",
+                color: "var(--color-error, #ef4444)",
+                cursor: isResettingBreaker ? "not-allowed" : "pointer",
+              }}
+            >
+              {isResettingBreaker ? t("detail.resettingBreaker") : t("detail.resetBreaker")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleTripBreaker()}
+              disabled={isTrippingBreaker}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 500,
+                borderRadius: "4px",
+                border: "1px solid rgba(239,68,68,0.4)",
+                background: "rgba(239,68,68,0.1)",
+                color: "var(--color-error, #ef4444)",
+                cursor: isTrippingBreaker ? "not-allowed" : "pointer",
+              }}
+            >
+              {isTrippingBreaker ? "..." : t("detail.manualTrip")}
+            </button>
+          )}
+        </div>
       </div>
       {connection.breaker ? (
         <div>
@@ -337,26 +568,228 @@ export default function ConnectionDetail({
       <hr />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3>{t("detail.lockouts")}</h3>
-        {visibleLockouts.length > 1 && (
+        <div style={{ display: "flex", gap: "6px" }}>
           <button
             type="button"
-            onClick={() => void handleReleaseAll()}
-            disabled={releasingKey === "ALL"}
+            onClick={() => setIsAddingLockout(!isAddingLockout)}
             style={{
               padding: "2px 8px",
               fontSize: "11px",
               fontWeight: 500,
               borderRadius: "4px",
-              border: "1px solid rgba(245,158,11,0.4)",
-              background: "rgba(245,158,11,0.15)",
-              color: "var(--color-warning, #d97706)",
-              cursor: releasingKey === "ALL" ? "not-allowed" : "pointer",
+              border: "1px solid var(--color-border)",
+              background: "var(--color-bg-subtle, rgba(0,0,0,0.05))",
+              color: "var(--color-text-main)",
+              cursor: "pointer",
             }}
           >
-            {releasingKey === "ALL" ? t("detail.releasing") : t("detail.releaseAll")}
+            {isAddingLockout ? t("detail.cancel") : `+ ${t("detail.disableModel")}`}
           </button>
-        )}
+          {visibleLockouts.length > 1 && (
+            <button
+              type="button"
+              onClick={() => void handleReleaseAll()}
+              disabled={releasingKey === "ALL"}
+              style={{
+                padding: "2px 8px",
+                fontSize: "11px",
+                fontWeight: 500,
+                borderRadius: "4px",
+                border: "1px solid rgba(245,158,11,0.4)",
+                background: "rgba(245,158,11,0.15)",
+                color: "var(--color-warning, #d97706)",
+                cursor: releasingKey === "ALL" ? "not-allowed" : "pointer",
+              }}
+            >
+              {releasingKey === "ALL" ? t("detail.releasing") : t("detail.releaseAll")}
+            </button>
+          )}
+        </div>
       </div>
+
+      {isAddingLockout && (
+        <form
+          onSubmit={(e) => void handleDisableModel(e)}
+          style={{
+            margin: "8px 0",
+            padding: "10px",
+            borderRadius: "6px",
+            background: "var(--color-bg-subtle, rgba(0,0,0,0.03))",
+            border: "1px solid var(--color-border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          <div>
+            <label
+              style={{
+                fontSize: "11px",
+                color: "var(--color-text-muted)",
+                display: "block",
+                marginBottom: "4px",
+              }}
+            >
+              {t("detail.modelName")}
+            </label>
+            <input
+              type="text"
+              required
+              value={lockoutModel}
+              onChange={(e) => setLockoutModel(e.target.value)}
+              placeholder={t("detail.modelNamePlaceholder")}
+              style={{
+                width: "100%",
+                padding: "4px 8px",
+                fontSize: "12px",
+                borderRadius: "4px",
+                border: "1px solid var(--color-border)",
+                background: "var(--color-bg, #fff)",
+                color: "var(--color-text-main)",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div>
+            <label
+              style={{
+                fontSize: "11px",
+                color: "var(--color-text-muted)",
+                display: "block",
+                marginBottom: "4px",
+              }}
+            >
+              {t("detail.scope")}
+            </label>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button
+                type="button"
+                onClick={() => setLockoutScope("connection")}
+                style={{
+                  padding: "2px 8px",
+                  fontSize: "11px",
+                  borderRadius: "4px",
+                  border:
+                    lockoutScope === "connection"
+                      ? "1px solid var(--color-primary, #6366f1)"
+                      : "1px solid var(--color-border)",
+                  background:
+                    lockoutScope === "connection" ? "rgba(99,102,241,0.15)" : "transparent",
+                  color:
+                    lockoutScope === "connection"
+                      ? "var(--color-primary, #6366f1)"
+                      : "var(--color-text-main)",
+                  cursor: "pointer",
+                }}
+              >
+                {t("detail.scopeConnection")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLockoutScope("provider")}
+                style={{
+                  padding: "2px 8px",
+                  fontSize: "11px",
+                  borderRadius: "4px",
+                  border:
+                    lockoutScope === "provider"
+                      ? "1px solid var(--color-primary, #6366f1)"
+                      : "1px solid var(--color-border)",
+                  background: lockoutScope === "provider" ? "rgba(99,102,241,0.15)" : "transparent",
+                  color:
+                    lockoutScope === "provider"
+                      ? "var(--color-primary, #6366f1)"
+                      : "var(--color-text-main)",
+                  cursor: "pointer",
+                }}
+              >
+                {t("detail.scopeProvider")}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label
+              style={{
+                fontSize: "11px",
+                color: "var(--color-text-muted)",
+                display: "block",
+                marginBottom: "4px",
+              }}
+            >
+              {t("detail.duration")}
+            </label>
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              {DURATION_PRESETS.map((d) => (
+                <button
+                  key={d.ms}
+                  type="button"
+                  onClick={() => setLockoutDuration(d.ms)}
+                  style={{
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    borderRadius: "4px",
+                    border:
+                      lockoutDuration === d.ms
+                        ? "1px solid var(--color-primary, #6366f1)"
+                        : "1px solid var(--color-border)",
+                    background: lockoutDuration === d.ms ? "rgba(99,102,241,0.15)" : "transparent",
+                    color:
+                      lockoutDuration === d.ms
+                        ? "var(--color-primary, #6366f1)"
+                        : "var(--color-text-main)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {t(`detail.${d.labelKey}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: "6px",
+              justifyContent: "flex-end",
+              marginTop: "4px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddingLockout(false);
+                setLockoutModel("");
+              }}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                borderRadius: "4px",
+                border: "1px solid var(--color-border)",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            >
+              {t("detail.cancel")}
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmittingLockout || !lockoutModel.trim()}
+              style={{
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 500,
+                borderRadius: "4px",
+                border: "1px solid rgba(245,158,11,0.4)",
+                background: "rgba(245,158,11,0.15)",
+                color: "var(--color-warning, #d97706)",
+                cursor: isSubmittingLockout || !lockoutModel.trim() ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSubmittingLockout ? "..." : t("detail.confirm")}
+            </button>
+          </div>
+        </form>
+      )}
+
       {visibleLockouts.length > 0 ? (
         <ul style={{ paddingLeft: "20px", margin: "8px 0" }}>
           {visibleLockouts.map((l, i) => {

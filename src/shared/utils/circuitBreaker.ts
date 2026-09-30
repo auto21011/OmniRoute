@@ -444,6 +444,13 @@ export class CircuitBreaker {
     this._persistToDb();
   }
 
+  trip(reason = "manual-trip") {
+    this.failureCount = Math.max(this.failureCount, this.failureThreshold);
+    this.lastFailureTime = Date.now();
+    this._transition(STATE.OPEN, reason);
+    this._persistToDb();
+  }
+
   // ─── Internal ─────────────────────────────────
 
   /**
