@@ -64,7 +64,12 @@ export default function ConnectionsTable({
       const res = await fetch("/api/resilience/connections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionId: connection.id, provider: connection.provider }),
+        body: JSON.stringify({
+          connectionId: connection.id,
+          provider: connection.provider,
+          resetBreaker: true,
+          clearLockouts: true,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -161,7 +166,14 @@ export default function ConnectionsTable({
             case "lastError":
               return <span>{r.lastErrorType ?? t("table.never")}</span>;
             case "lockouts":
-              return <span>{r.lockouts.length}</span>;
+              if (r.lockouts.length > 0) {
+                return (
+                  <Badge variant="warning" size="sm">
+                    {r.lockouts.length}
+                  </Badge>
+                );
+              }
+              return <span style={{ color: "var(--color-text-muted)" }}>0</span>;
             case "provider":
               return <span>{r.provider}</span>;
             case "authType":

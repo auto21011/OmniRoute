@@ -237,3 +237,36 @@ export function resetCircuitBreakerByName(name: string): boolean {
   }
   return false;
 }
+
+/**
+ * Trip a specific circuit breaker into OPEN state by name or provider.
+ */
+export function tripCircuitBreakerByName(name: string, reason = "manual_trip"): boolean {
+  if (!name) return false;
+  const canonical = resolveProviderId(name);
+  const breaker = getCircuitBreaker(canonical) ?? getCircuitBreaker(name);
+  if (breaker) {
+    breaker.trip(reason);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Put a single connection into temporary cooldown.
+ */
+export async function setConnectionCooldown(
+  connectionId: string,
+  durationMs: number,
+  reason = "manual_cooldown"
+): Promise<{ ok: boolean; connectionId: string; rateLimitedUntil: string }> {
+  const until = new Date(Date.now() + durationMs).toISOString();
+  await updateProviderConnection(connectionId, {
+    rateLimitedUntil: until,
+    testStatus: "unavailable",
+    lastError: reason,
+    lastErrorAt: new Date().toISOString(),
+    lastErrorType: "manual_cooldown",
+  });
+  return { ok: true, connectionId, rateLimitedUntil: until };
+}

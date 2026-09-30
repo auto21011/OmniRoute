@@ -25,6 +25,8 @@ import {
   releaseProviderConnections,
   releaseAllConnections,
   resetCircuitBreakerByName,
+  tripCircuitBreakerByName,
+  setConnectionCooldown,
 } from "@/domain/connectionResilience";
 
 // Explicit column whitelist -- getRawProviderConnections() DEFAULTS TO SELECT *,
@@ -303,8 +305,10 @@ const releaseMutationSchema = z.object({
   all: z.boolean().optional(),
   resetBreaker: z.boolean().optional(),
   clearLockouts: z.boolean().optional(),
-  action: z.enum(["release_cooldown", "reset_breaker"]).optional(),
+  action: z.enum(["release_cooldown", "reset_breaker", "set_cooldown", "trip_breaker"]).optional(),
   breakerName: z.string().trim().min(1).optional(),
+  durationMs: z.number().positive().optional(),
+  reason: z.string().trim().min(1).optional(),
 });
 
 async function handleReleaseMutation(req: NextRequest) {
@@ -321,6 +325,33 @@ async function handleReleaseMutation(req: NextRequest) {
       );
     }
     const data = parseResult.data;
+
+    if (data.action === "trip_breaker") {
+      const targetBreaker = data.breakerName || data.provider;
+      if (!targetBreaker) {
+        return NextResponse.json(
+          buildErrorBody(400, "breakerName or provider is required for trip_breaker"),
+          { status: 400 }
+        );
+      }
+      const tripped = tripCircuitBreakerByName(targetBreaker, data.reason || "manual_trip");
+      return NextResponse.json({ ok: true, tripped, breakerName: targetBreaker });
+    }
+
+    if (data.action === "set_cooldown") {
+      if (!data.connectionId) {
+        return NextResponse.json(buildErrorBody(400, "connectionId is required for set_cooldown"), {
+          status: 400,
+        });
+      }
+      const durationMs = data.durationMs || 300000;
+      const result = await setConnectionCooldown(
+        data.connectionId,
+        durationMs,
+        data.reason || "manual_cooldown"
+      );
+      return NextResponse.json(result);
+    }
 
     if (data.action === "reset_breaker" || data.breakerName) {
       const targetBreaker = data.breakerName || data.provider;
