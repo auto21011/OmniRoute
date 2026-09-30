@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import type { ResilienceConnectionsResponse } from "@/types/resilience";
 import EmptyState from "@/shared/components/EmptyState";
+import { useNotificationStore } from "@/store/notificationStore";
 import ConnectionsTable from "./ConnectionsTable";
 import BreakerTimeline from "./BreakerTimeline";
 import LockedModelsCard from "./LockedModelsCard";
@@ -12,12 +13,14 @@ const POLL_INTERVAL_MS = 30000;
 
 export default function ResilienceConnectionsClient() {
   const t = useTranslations("resilienceConnections");
+  const notify = useNotificationStore();
   const [data, setData] = useState<ResilienceConnectionsResponse | null>(null);
   const [windowMs, setWindowMs] = useState(3600000);
   const [pollError, setPollError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stopReason, setStopReason] = useState<"none" | "local_only" | "not_found">("none");
   const [retryCount, setRetryCount] = useState(0);
+  const [isClearingAllCooldowns, setIsClearingAllCooldowns] = useState(false);
   const stoppedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -164,6 +167,28 @@ export default function ResilienceConnectionsClient() {
       <EmptyState icon="shield" title={t("empty.title")} description={t("empty.description")} />
     );
 
+  const handleClearAllCooldowns = async () => {
+    setIsClearingAllCooldowns(true);
+    try {
+      const res = await fetch("/api/resilience/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error?.message || json?.error || `HTTP ${res.status}`);
+      }
+      notify.success(t("summary.clearAllSuccess"));
+      void fetchData(windowMs);
+    } catch (err) {
+      console.error("[ResilienceConnectionsClient] Failed to clear all cooldowns:", err);
+      notify.error(err instanceof Error ? err.message : "Failed to clear all cooldowns");
+    } finally {
+      setIsClearingAllCooldowns(false);
+    }
+  };
+
   const totalLockedModels = (data.connections || []).reduce(
     (acc, c) => acc + (c.lockouts?.length || 0),
     0
@@ -175,19 +200,48 @@ export default function ResilienceConnectionsClient() {
       <div
         style={{
           display: "flex",
-          gap: "16px",
-          fontSize: "12px",
-          color: "var(--color-text-muted)",
+          justifyContent: "space-between",
+          alignItems: "center",
           flexWrap: "wrap",
+          gap: "12px",
         }}
       >
-        <span>
-          {t("summary.total", { count: data.meta.totalConnections })}
-          {data.meta.countsCapped ? ` (${t("summary.capped")})` : ""}
-        </span>
-        <span>{t("summary.coolingDown", { count: data.meta.coolingDownCount })}</span>
-        <span>{t("summary.unhealthyBreakers", { count: data.meta.unhealthyBreakerCount })}</span>
-        <span>{t("summary.lockedModels", { count: totalLockedModels })}</span>
+        <div
+          style={{
+            display: "flex",
+            gap: "16px",
+            fontSize: "12px",
+            color: "var(--color-text-muted)",
+            flexWrap: "wrap",
+          }}
+        >
+          <span>
+            {t("summary.total", { count: data.meta.totalConnections })}
+            {data.meta.countsCapped ? ` (${t("summary.capped")})` : ""}
+          </span>
+          <span>{t("summary.coolingDown", { count: data.meta.coolingDownCount })}</span>
+          <span>{t("summary.unhealthyBreakers", { count: data.meta.unhealthyBreakerCount })}</span>
+          <span>{t("summary.lockedModels", { count: totalLockedModels })}</span>
+        </div>
+        {data.meta.coolingDownCount > 0 && (
+          <button
+            type="button"
+            onClick={() => void handleClearAllCooldowns()}
+            disabled={isClearingAllCooldowns}
+            style={{
+              padding: "4px 10px",
+              fontSize: "12px",
+              fontWeight: 500,
+              borderRadius: "6px",
+              border: "1px solid rgba(245,158,11,0.4)",
+              background: "rgba(245,158,11,0.15)",
+              color: "var(--color-warning, #d97706)",
+              cursor: isClearingAllCooldowns ? "not-allowed" : "pointer",
+            }}
+          >
+            {isClearingAllCooldowns ? t("summary.clearingAll") : t("summary.clearAllCooldowns")}
+          </button>
+        )}
       </div>
       {data.meta.degraded.length > 0 && (
         <div
@@ -214,6 +268,9 @@ export default function ResilienceConnectionsClient() {
         connections={data.connections}
         receivedAt={data.receivedAt ?? 0}
         degraded={data.meta.degraded}
+        onRefresh={() => {
+          void fetchData(windowMs);
+        }}
       />
       <BreakerTimeline breakers={data.breakers} onWindowChange={setWindowMs} />
     </>
