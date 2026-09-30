@@ -7,6 +7,11 @@ import type { ConnectionState } from "@/types/resilience";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
 import { useNotificationStore } from "@/store/notificationStore";
 import { getModelsByProviderId } from "@/shared/constants/models";
+import { mergeProviderModelListing } from "@/lib/providers/mergeProviderModelListing";
+import {
+  isOpenAICompatibleProvider,
+  isAnthropicCompatibleProvider,
+} from "@/shared/constants/providers";
 
 const DURATION_PRESETS = [
   { labelKey: "duration5m", ms: 5 * 60 * 1000 },
@@ -46,7 +51,19 @@ export default function ConnectionDetail({
   const [lockoutModel, setLockoutModel] = useState("");
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [customModelText, setCustomModelText] = useState("");
-  const [dynamicModels, setDynamicModels] = useState<Array<{ id: string; name?: string }>>([]);
+  const [providerModelMeta, setProviderModelMeta] = useState<{
+    customModels: Array<{ id: string; name?: string; source?: string; isHidden?: boolean }>;
+    syncedModels: Array<{ id: string; name?: string }>;
+    syncedCatalogAuthoritative: boolean;
+    hiddenModelIds: Set<string>;
+    loaded: boolean;
+  }>({
+    customModels: [],
+    syncedModels: [],
+    syncedAuthoritative: false,
+    hiddenModelIds: new Set(),
+    loaded: false,
+  });
   const [lockoutDuration, setLockoutDuration] = useState(5 * 60 * 1000);
   const [lockoutScope, setLockoutScope] = useState<"connection" | "provider">("connection");
   const [isSubmittingLockout, setIsSubmittingLockout] = useState(false);
@@ -74,42 +91,160 @@ export default function ConnectionDetail({
   }, [connection?.isCoolingDown, connection?.id]);
 
   useEffect(() => {
-    if (!connection?.provider || typeof window === "undefined" || process.env.NODE_ENV === "test") {
+    if (!connection?.provider || typeof window === "undefined") {
+      return;
+    }
+    if (process.env.NODE_ENV === "test" && !(globalThis as any).__TEST_ENABLE_MODEL_FETCH__) {
       return;
     }
     let cancelled = false;
-    fetch(`/api/v1/providers/${encodeURIComponent(connection.provider)}/models`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data || !Array.isArray(data.data)) return;
-        const list: Array<{ id: string; name?: string }> = [];
-        for (const item of data.data) {
-          if (item && typeof item.id === "string" && item.id.trim()) {
-            list.push({ id: item.id, name: typeof item.name === "string" ? item.name : item.id });
+    const providerId = connection.provider;
+    const connectionId = connection.id;
+
+    async function loadModels() {
+      try {
+        const [metaRes, syncRes] = await Promise.allSettled([
+          fetch(`/api/provider-models?provider=${encodeURIComponent(providerId)}`, {
+            cache: "no-store",
+          }),
+          fetch(`/api/synced-available-models?provider=${encodeURIComponent(providerId)}`, {
+            cache: "no-store",
+          }),
+        ]);
+
+        if (cancelled) return;
+
+        let customModels: Array<{
+          id: string;
+          name?: string;
+          source?: string;
+          isHidden?: boolean;
+        }> = [];
+        const hiddenModelIds = new Set<string>();
+
+        if (metaRes.status === "fulfilled" && metaRes.value.ok) {
+          const metaData = await metaRes.value.json().catch(() => null);
+          if (metaData) {
+            if (Array.isArray(metaData.models)) {
+              customModels = metaData.models;
+              for (const m of metaData.models) {
+                if (m && typeof m.id === "string" && m.isHidden === true) {
+                  hiddenModelIds.add(m.id.trim());
+                }
+              }
+            }
+            if (
+              metaData.hiddenModelsByProvider &&
+              typeof metaData.hiddenModelsByProvider === "object"
+            ) {
+              const list = metaData.hiddenModelsByProvider[providerId];
+              if (Array.isArray(list)) {
+                for (const id of list) {
+                  if (typeof id === "string" && id.trim()) hiddenModelIds.add(id.trim());
+                }
+              }
+            }
+            if (Array.isArray(metaData.modelCompatOverrides)) {
+              for (const o of metaData.modelCompatOverrides) {
+                if (o && typeof o.modelId === "string" && o.isHidden === true) {
+                  hiddenModelIds.add(o.modelId.trim());
+                }
+              }
+            }
           }
         }
-        if (list.length > 0) {
-          setDynamicModels(list);
+
+        let syncedModels: Array<{ id: string; name?: string }> = [];
+        let syncedCatalogAuthoritative = false;
+
+        if (syncRes.status === "fulfilled" && syncRes.value.ok) {
+          const syncData = await syncRes.value.json().catch(() => null);
+          if (syncData) {
+            if (Array.isArray(syncData.models)) {
+              syncedModels = syncData.models;
+            }
+            if (syncData.authoritative === true) {
+              syncedCatalogAuthoritative = true;
+            }
+          }
         }
-      })
-      .catch(() => {});
+
+        // For compatible providers with no custom or synced models yet, attempt live discovery
+        if (
+          customModels.length === 0 &&
+          syncedModels.length === 0 &&
+          connectionId &&
+          (isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId))
+        ) {
+          try {
+            const liveRes = await fetch(
+              `/api/providers/${encodeURIComponent(connectionId)}/models?excludeHidden=true&chatOnly=true`
+            );
+            if (liveRes.ok) {
+              const liveData = await liveRes.json().catch(() => null);
+              if (liveData && Array.isArray(liveData.models)) {
+                syncedModels = liveData.models.map((m: any) => ({
+                  id: m.id || m.name,
+                  name: m.name || m.id,
+                }));
+              }
+            }
+          } catch {
+            // Ignore live discovery failure
+          }
+        }
+
+        if (!cancelled) {
+          setProviderModelMeta({
+            customModels,
+            syncedModels,
+            syncedCatalogAuthoritative,
+            hiddenModelIds,
+            loaded: true,
+          });
+        }
+      } catch (err) {
+        console.warn("[ConnectionDetail] Failed to load provider models:", err);
+      }
+    }
+
+    loadModels();
     return () => {
       cancelled = true;
     };
-  }, [connection?.provider]);
+  }, [connection?.provider, connection?.id]);
 
-  const fromProvider = connection?.provider ? getModelsByProviderId(connection.provider) || [] : [];
-  const fromLockouts = (connection?.lockouts || []).map((l) => ({ id: l.model, name: l.model }));
+  const registryModels = connection?.provider
+    ? getModelsByProviderId(connection.provider) || []
+    : [];
+  const mergedListing = mergeProviderModelListing({
+    providerId: connection?.provider || "",
+    registryModels,
+    syncedModels: providerModelMeta.syncedModels,
+    syncedCatalogAuthoritative: providerModelMeta.syncedCatalogAuthoritative,
+    customModels: providerModelMeta.customModels,
+  });
+
   const modelMap = new Map<string, { id: string; name?: string }>();
-  for (const m of fromProvider) {
-    if (m?.id) modelMap.set(m.id, { id: m.id, name: m.name });
+  for (const m of mergedListing) {
+    if (m?.id && typeof m.id === "string") {
+      const id = m.id.trim();
+      if (!id) continue;
+      if (providerModelMeta.hiddenModelIds.has(id)) continue;
+      if ((m as any).isHidden === true) continue;
+      modelMap.set(id, { id, name: typeof m.name === "string" ? m.name : id });
+    }
   }
-  for (const m of dynamicModels) {
-    if (m?.id && !modelMap.has(m.id)) modelMap.set(m.id, m);
+
+  for (const l of connection?.lockouts || []) {
+    if (l?.model && typeof l.model === "string") {
+      const id = l.model.trim();
+      if (id && !providerModelMeta.hiddenModelIds.has(id) && !modelMap.has(id)) {
+        modelMap.set(id, { id, name: id });
+      }
+    }
   }
-  for (const m of fromLockouts) {
-    if (m?.id && !modelMap.has(m.id)) modelMap.set(m.id, m);
-  }
+
   const availableModels = Array.from(modelMap.values());
 
   const effectiveModel = isCustomModel ? customModelText.trim() : lockoutModel.trim();
