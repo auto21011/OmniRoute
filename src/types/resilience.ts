@@ -31,6 +31,7 @@ export interface RotationAccountState {
 export interface ConnectionState {
   id: string;
   provider: string;
+  providerName?: string | null;
   name: string | null;
   authType: string;
   priority: number;

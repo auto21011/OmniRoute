@@ -1,10 +1,6 @@
 "use client";
 
-<<<<<<< HEAD
 import { useState, useEffect, useMemo, memo, type ReactNode } from "react";
-=======
-import { useState, useEffect, memo } from "react";
->>>>>>> 4159e127d (feat(resilience): allow releasing connection cooldowns and resetting breakers in connection resilience)
 import { useTranslations } from "next-intl";
 import Badge from "@/shared/components/Badge";
 import DataTable from "@/shared/components/DataTable";
@@ -13,7 +9,6 @@ import type { ConnectionState } from "@/types/resilience";
 import { describeProviderAvailability } from "@/lib/providerAvailability";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
 import { useNotificationStore } from "@/store/notificationStore";
-import { getProviderById } from "@/shared/constants/providers";
 import ConnectionDetail from "./ConnectionDetail";
 
 interface ConnectionsTableProps {
@@ -191,8 +186,19 @@ export default function ConnectionsTable({
               }
               return <StatusWithAvailability badge={badge} connection={r} />;
             }
-            case "id":
-              return <span>{r.id.length > 8 ? `${r.id.slice(0, 8)}...` : r.id}</span>;
+            case "id": {
+              const displayId =
+                r.name && r.name.trim()
+                  ? r.name.trim()
+                  : r.id.length > 8
+                    ? `${r.id.slice(0, 8)}...`
+                    : r.id;
+              return (
+                <span title={r.id} style={{ cursor: "help" }}>
+                  {displayId}
+                </span>
+              );
+            }
             case "cooldown":
               return <CountdownCell connection={r} receivedAt={receivedAt} />;
               {
@@ -210,12 +216,10 @@ export default function ConnectionsTable({
               }
               return <span style={{ color: "var(--color-text-muted)" }}>0</span>;
             case "provider": {
-              // Priority: connection name → built-in provider display name → raw provider ID
-              const builtinName = getProviderById(r.provider)?.name;
-              const displayLabel = r.name ?? builtinName ?? r.provider;
-              const isRaw = displayLabel === r.provider;
+              const displayLabel = r.providerName || r.provider;
+              const hasFriendlyName = Boolean(r.providerName && r.providerName !== r.provider);
               return (
-                <span title={r.provider} style={{ cursor: isRaw ? undefined : "help" }}>
+                <span title={r.provider} style={{ cursor: hasFriendlyName ? "help" : undefined }}>
                   {displayLabel}
                 </span>
               );
