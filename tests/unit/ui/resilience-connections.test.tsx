@@ -812,6 +812,103 @@ describe("ConnectionDetail advanced operations", () => {
       )
     );
   });
+
+  it("includes imported models and excludes hidden models from provider model selection", async () => {
+    (globalThis as any).__TEST_ENABLE_MODEL_FETCH__ = true;
+    try {
+      const { default: ConnectionDetail } =
+        await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+      const conn = makeConnection({
+        id: "conn-sensenova-1",
+        provider: "sensenova",
+        lockouts: [],
+      });
+
+      fetchMock.mockImplementation((url) => {
+        const u = String(url);
+        if (u.includes("/api/provider-models")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                models: [
+                  {
+                    id: "sensenova-custom-imported",
+                    name: "SenseNova Imported Custom",
+                    source: "imported",
+                  },
+                  {
+                    id: "sensenova-hidden-imported",
+                    name: "SenseNova Hidden",
+                    source: "imported",
+                    isHidden: true,
+                  },
+                ],
+                modelCompatOverrides: [{ modelId: "deepseek-v4-flash", isHidden: true }],
+                hiddenModelsByProvider: {
+                  sensenova: ["deepseek-v4-flash", "sensenova-hidden-imported"],
+                },
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (u.includes("/api/synced-available-models")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                providerId: "sensenova",
+                models: [{ id: "sensenova-synced-1", name: "SenseNova Synced" }],
+                authoritative: false,
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      });
+
+      let el: HTMLDivElement;
+      act(() => {
+        el = render(
+          <ConnectionDetail connection={conn} receivedAt={Date.now()} onClose={() => {}} />
+        ) as HTMLDivElement;
+      });
+
+      const disableBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("detail.disableModel")
+      );
+      expect(disableBtn).toBeTruthy();
+
+      act(() => {
+        disableBtn!.click();
+      });
+
+      await waitFor(() => {
+        const options = Array.from(el!.querySelectorAll("select option")).map(
+          (o) => (o as HTMLOptionElement).value
+        );
+        return options.includes("sensenova-custom-imported");
+      });
+
+      const options = Array.from(el!.querySelectorAll("select option")).map(
+        (o) => (o as HTMLOptionElement).value
+      );
+
+      // Imported model MUST be present
+      expect(options).toContain("sensenova-custom-imported");
+      // Synced model MUST be present
+      expect(options).toContain("sensenova-synced-1");
+      // Non-hidden static model MUST be present
+      expect(options).toContain("sensenova-6.7-flash-lite");
+
+      // Hidden static model MUST NOT be present
+      expect(options).not.toContain("deepseek-v4-flash");
+      // Hidden imported model MUST NOT be present
+      expect(options).not.toContain("sensenova-hidden-imported");
+    } finally {
+      delete (globalThis as any).__TEST_ENABLE_MODEL_FETCH__;
+    }
+  });
 });
 
 describe("BreakerTimeline", () => {
