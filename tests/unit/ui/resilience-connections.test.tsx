@@ -572,7 +572,7 @@ describe("ConnectionDetail advanced operations", () => {
     containers.length = 0;
   });
 
-  it("submits disable model form calling POST /api/resilience/model-cooldowns", async () => {
+  it("submits disable model form calling POST /api/resilience/model-cooldowns via select", async () => {
     const { default: ConnectionDetail } =
       await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
     const conn = makeConnection({
@@ -603,6 +603,86 @@ describe("ConnectionDetail advanced operations", () => {
       disableBtn!.click();
     });
 
+    const select = el!.querySelector("select") as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    act(() => {
+      select.value = "claude-sonnet-4.5";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, lockedCount: 1, until: Date.now() + 300000 }), {
+        status: 200,
+      })
+    );
+
+    const form = el!.querySelector("form");
+    expect(form).toBeTruthy();
+
+    act(() => {
+      form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
+      )
+    );
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4.5",
+      durationMs: 300000,
+      connectionId: "conn-lock-1",
+      scope: "connection",
+      reason: "manual_disable",
+    });
+    await waitFor(() => onRefresh.mock.calls.length > 0);
+  });
+
+  it("submits disable model form with custom input when choosing custom option", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+    const conn = makeConnection({
+      id: "conn-lock-2",
+      provider: "anthropic",
+      lockouts: [],
+    });
+    const onRefresh = vi.fn();
+
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
+    });
+
+    const disableBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("detail.disableModel")
+    );
+    expect(disableBtn).toBeTruthy();
+
+    act(() => {
+      disableBtn!.click();
+    });
+
+    const select = el!.querySelector("select") as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    act(() => {
+      select.value = "__custom__";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
     const input = el!.querySelector("input[type='text']") as HTMLInputElement;
     expect(input).toBeTruthy();
 
@@ -611,7 +691,7 @@ describe("ConnectionDetail advanced operations", () => {
         window.HTMLInputElement.prototype,
         "value"
       )?.set;
-      setter?.call(input, "claude-3-opus");
+      setter?.call(input, "claude-custom-special");
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
@@ -640,9 +720,9 @@ describe("ConnectionDetail advanced operations", () => {
     expect(postCall).toBeTruthy();
     expect(JSON.parse((postCall![1] as any).body)).toEqual({
       provider: "anthropic",
-      model: "claude-3-opus",
+      model: "claude-custom-special",
       durationMs: 300000,
-      connectionId: "conn-lock-1",
+      connectionId: "conn-lock-2",
       scope: "connection",
       reason: "manual_disable",
     });
