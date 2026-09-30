@@ -92,3 +92,52 @@ test("model cooldown reset requires management auth", async () => {
     false
   );
 });
+
+test("model cooldown creation requires management auth and creates lockout when authenticated", async () => {
+  const unauthenticated = await route.POST(
+    new Request("http://localhost/api/resilience/model-cooldowns", {
+      method: "POST",
+      body: JSON.stringify({
+        provider: "cooldown-auth-provider",
+        model: "cooldown-auth-model",
+        durationMs: 60_000,
+        connectionId: "cooldown-auth-conn",
+      }),
+    })
+  );
+
+  assert.equal(unauthenticated.status, 401);
+  assert.equal(
+    getAvailabilityReport().some((e) => e.provider === "cooldown-auth-provider"),
+    false
+  );
+
+  const authenticated = await route.POST(
+    await makeManagementSessionRequest("http://localhost/api/resilience/model-cooldowns", {
+      method: "POST",
+      body: {
+        provider: "cooldown-auth-provider",
+        model: "cooldown-auth-model",
+        durationMs: 60_000,
+        connectionId: "cooldown-auth-conn",
+        reason: "manual_disable",
+      },
+    })
+  );
+
+  assert.equal(authenticated.status, 200);
+  const json = await authenticated.json();
+  assert.equal(json.ok, true);
+  assert.ok(json.until > Date.now());
+
+  assert.ok(
+    getAvailabilityReport().some(
+      (entry) =>
+        entry.provider === "cooldown-auth-provider" &&
+        entry.model === "cooldown-auth-model" &&
+        entry.connectionId === "cooldown-auth-conn"
+    )
+  );
+
+  clearModelLock("cooldown-auth-provider", "cooldown-auth-conn", "cooldown-auth-model");
+});

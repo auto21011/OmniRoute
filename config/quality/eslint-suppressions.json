@@ -865,11 +865,6 @@
       "count": 1
     }
   },
-  "src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionsTable.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
