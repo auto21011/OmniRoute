@@ -6,6 +6,7 @@ import Badge from "@/shared/components/Badge";
 import type { ConnectionState } from "@/types/resilience";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
 import { useNotificationStore } from "@/store/notificationStore";
+import { getModelsByProviderId } from "@/shared/constants/models";
 
 const DURATION_PRESETS = [
   { labelKey: "duration5m", ms: 5 * 60 * 1000 },
@@ -43,6 +44,9 @@ export default function ConnectionDetail({
   // Model lockout creation
   const [isAddingLockout, setIsAddingLockout] = useState(false);
   const [lockoutModel, setLockoutModel] = useState("");
+  const [isCustomModel, setIsCustomModel] = useState(false);
+  const [customModelText, setCustomModelText] = useState("");
+  const [dynamicModels, setDynamicModels] = useState<Array<{ id: string; name?: string }>>([]);
   const [lockoutDuration, setLockoutDuration] = useState(5 * 60 * 1000);
   const [lockoutScope, setLockoutScope] = useState<"connection" | "provider">("connection");
   const [isSubmittingLockout, setIsSubmittingLockout] = useState(false);
@@ -68,6 +72,47 @@ export default function ConnectionDetail({
     const interval = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(interval);
   }, [connection?.isCoolingDown, connection?.id]);
+
+  useEffect(() => {
+    if (!connection?.provider || typeof window === "undefined" || process.env.NODE_ENV === "test") {
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/v1/providers/${encodeURIComponent(connection.provider)}/models`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data || !Array.isArray(data.data)) return;
+        const list: Array<{ id: string; name?: string }> = [];
+        for (const item of data.data) {
+          if (item && typeof item.id === "string" && item.id.trim()) {
+            list.push({ id: item.id, name: typeof item.name === "string" ? item.name : item.id });
+          }
+        }
+        if (list.length > 0) {
+          setDynamicModels(list);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [connection?.provider]);
+
+  const fromProvider = connection?.provider ? getModelsByProviderId(connection.provider) || [] : [];
+  const fromLockouts = (connection?.lockouts || []).map((l) => ({ id: l.model, name: l.model }));
+  const modelMap = new Map<string, { id: string; name?: string }>();
+  for (const m of fromProvider) {
+    if (m?.id) modelMap.set(m.id, { id: m.id, name: m.name });
+  }
+  for (const m of dynamicModels) {
+    if (m?.id && !modelMap.has(m.id)) modelMap.set(m.id, m);
+  }
+  for (const m of fromLockouts) {
+    if (m?.id && !modelMap.has(m.id)) modelMap.set(m.id, m);
+  }
+  const availableModels = Array.from(modelMap.values());
+
+  const effectiveModel = isCustomModel ? customModelText.trim() : lockoutModel.trim();
 
   if (!connection) return null; // Guard: connection deleted while panel open
   const elapsedMs = tick * 1000;
@@ -214,7 +259,8 @@ export default function ConnectionDetail({
 
   const handleDisableModel = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!connection || !lockoutModel.trim()) return;
+    const targetModel = effectiveModel;
+    if (!connection || !targetModel) return;
     setIsSubmittingLockout(true);
     try {
       const res = await fetch("/api/resilience/model-cooldowns", {
@@ -222,7 +268,7 @@ export default function ConnectionDetail({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: connection.provider,
-          model: lockoutModel.trim(),
+          model: targetModel,
           durationMs: lockoutDuration,
           connectionId: lockoutScope === "connection" ? connection.id : undefined,
           scope: lockoutScope,
@@ -233,9 +279,11 @@ export default function ConnectionDetail({
         const data = await res.json().catch(() => ({}));
         throw new Error(data?.error || `HTTP ${res.status}`);
       }
-      notify.success(t("detail.disableSuccess", { model: lockoutModel.trim() }));
+      notify.success(t("detail.disableSuccess", { model: targetModel }));
       setIsAddingLockout(false);
       setLockoutModel("");
+      setIsCustomModel(false);
+      setCustomModelText("");
       onRefresh?.();
     } catch (err) {
       console.error("[ConnectionDetail] Failed to disable model:", err);
@@ -571,7 +619,17 @@ export default function ConnectionDetail({
         <div style={{ display: "flex", gap: "6px" }}>
           <button
             type="button"
-            onClick={() => setIsAddingLockout(!isAddingLockout)}
+            onClick={() =>
+              setIsAddingLockout((prev) => {
+                const next = !prev;
+                if (next) {
+                  setLockoutModel("");
+                  setIsCustomModel(availableModels.length === 0);
+                  setCustomModelText("");
+                }
+                return next;
+              })
+            }
             style={{
               padding: "2px 8px",
               fontSize: "11px",
@@ -630,14 +688,20 @@ export default function ConnectionDetail({
                 marginBottom: "4px",
               }}
             >
-              {t("detail.modelName")}
+              {t("detail.selectModel")}
             </label>
-            <input
-              type="text"
-              required
-              value={lockoutModel}
-              onChange={(e) => setLockoutModel(e.target.value)}
-              placeholder={t("detail.modelNamePlaceholder")}
+            <select
+              value={isCustomModel ? "__custom__" : lockoutModel}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "__custom__") {
+                  setIsCustomModel(true);
+                  setLockoutModel("");
+                } else {
+                  setIsCustomModel(false);
+                  setLockoutModel(val);
+                }
+              }}
               style={{
                 width: "100%",
                 padding: "4px 8px",
@@ -648,7 +712,37 @@ export default function ConnectionDetail({
                 color: "var(--color-text-main)",
                 boxSizing: "border-box",
               }}
-            />
+            >
+              <option value="">{t("detail.selectModelPlaceholder")}</option>
+              {availableModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id}
+                </option>
+              ))}
+              <option value="__custom__">{t("detail.customModelOption")}</option>
+            </select>
+            {isCustomModel && (
+              <div style={{ marginTop: "6px" }}>
+                <input
+                  type="text"
+                  required
+                  value={customModelText}
+                  onChange={(e) => setCustomModelText(e.target.value)}
+                  placeholder={t("detail.customModelPlaceholder")}
+                  style={{
+                    width: "100%",
+                    padding: "4px 8px",
+                    fontSize: "12px",
+                    borderRadius: "4px",
+                    border: "1px solid var(--color-border)",
+                    background: "var(--color-bg, #fff)",
+                    color: "var(--color-text-main)",
+                    boxSizing: "border-box",
+                  }}
+                  autoFocus
+                />
+              </div>
+            )}
           </div>
           <div>
             <label
@@ -758,6 +852,8 @@ export default function ConnectionDetail({
               onClick={() => {
                 setIsAddingLockout(false);
                 setLockoutModel("");
+                setIsCustomModel(false);
+                setCustomModelText("");
               }}
               style={{
                 padding: "3px 10px",
@@ -772,7 +868,7 @@ export default function ConnectionDetail({
             </button>
             <button
               type="submit"
-              disabled={isSubmittingLockout || !lockoutModel.trim()}
+              disabled={isSubmittingLockout || !effectiveModel}
               style={{
                 padding: "3px 10px",
                 fontSize: "11px",
@@ -781,7 +877,7 @@ export default function ConnectionDetail({
                 border: "1px solid rgba(245,158,11,0.4)",
                 background: "rgba(245,158,11,0.15)",
                 color: "var(--color-warning, #d97706)",
-                cursor: isSubmittingLockout || !lockoutModel.trim() ? "not-allowed" : "pointer",
+                cursor: isSubmittingLockout || !effectiveModel ? "not-allowed" : "pointer",
               }}
             >
               {isSubmittingLockout ? "..." : t("detail.confirm")}
