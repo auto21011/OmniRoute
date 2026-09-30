@@ -7,7 +7,7 @@ import type { ConnectionState } from "@/types/resilience";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
 import { useNotificationStore } from "@/store/notificationStore";
 import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
-import { resolveProviderId } from "@/shared/constants/providers";
+import { resolveProviderId, getProviderById } from "@/shared/constants/providers";
 
 const DURATION_PRESETS = [
   { labelKey: "duration5m", ms: 5 * 60 * 1000 },
@@ -560,7 +560,19 @@ export default function ConnectionDetail({
         )}
       </div>
       <div>
-        {t("detail.provider")}: {connection.provider}
+        {t("detail.provider")}:{" "}
+        {(() => {
+          const builtinName = getProviderById(connection.provider)?.name;
+          const displayLabel = connection.name ?? builtinName ?? connection.provider;
+          const showTooltip = displayLabel !== connection.provider;
+          return showTooltip ? (
+            <strong title={connection.provider} style={{ cursor: "help" }}>
+              {displayLabel}
+            </strong>
+          ) : (
+            <strong>{displayLabel}</strong>
+          );
+        })()}
       </div>
       <div>
         {t("detail.id")}: {connection.id}
