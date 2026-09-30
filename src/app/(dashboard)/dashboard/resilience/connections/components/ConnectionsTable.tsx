@@ -13,6 +13,7 @@ import type { ConnectionState } from "@/types/resilience";
 import { describeProviderAvailability } from "@/lib/providerAvailability";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
 import { useNotificationStore } from "@/store/notificationStore";
+import { getProviderById } from "@/shared/constants/providers";
 import ConnectionDetail from "./ConnectionDetail";
 
 interface ConnectionsTableProps {
@@ -208,8 +209,17 @@ export default function ConnectionsTable({
                 );
               }
               return <span style={{ color: "var(--color-text-muted)" }}>0</span>;
-            case "provider":
-              return <span>{r.provider}</span>;
+            case "provider": {
+              // Priority: connection name → built-in provider display name → raw provider ID
+              const builtinName = getProviderById(r.provider)?.name;
+              const displayLabel = r.name ?? builtinName ?? r.provider;
+              const isRaw = displayLabel === r.provider;
+              return (
+                <span title={r.provider} style={{ cursor: isRaw ? undefined : "help" }}>
+                  {displayLabel}
+                </span>
+              );
+            }
             case "authType":
               return <span>{r.authType}</span>;
             case "backoffLevel":
