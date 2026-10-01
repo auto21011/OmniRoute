@@ -8,13 +8,16 @@ import { initTranslateStreamState } from "./streamTranslateState.ts";
 import {
   extractUsage,
   hasValidUsage,
+  hasOutputTokens,
   estimateUsage,
+  estimateOutputTokens,
   logUsage,
   addBufferToUsage,
   filterUsageForFormat,
   carryCacheCreationMarker,
   normalizeUsage as normalizeTokenUsage,
   sanitizeUsagePayloadForRequest,
+  carryEstimatedUsageMarker,
   type UsageLike,
 } from "./usageTracking.ts";
 import {
@@ -1226,7 +1229,12 @@ export function createSSEStream(options: StreamOptions = {}) {
       itemSanitized.usage = timing.withTps(filterUsageForFormat(estimated, sourceFormat));
       state.usage = estimated;
       if (hasValidUsage(estimated)) translateForwardedUsage = true; // finish chunk carries it
-    } else if (state?.finishReason && isFinishChunk && state.usage) {
+    } else if (
+      state?.finishReason &&
+      isFinishChunk &&
+      state.usage &&
+      (totalContentLength === 0 || hasOutputTokens(state.usage as UsageLike))
+    ) {
       const buffered = addBufferToUsage(state.usage);
       itemSanitized.usage = timing.withTps(
         carryCacheCreationMarker(itemSanitized.usage, filterUsageForFormat(buffered, sourceFormat))
@@ -1999,6 +2007,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                         !parsed.choices[0]?.finish_reason))
                   ) {
                     const emptyChoicesUsage = extractUsage(parsed) ?? parsed.usage;
+<<<<<<< HEAD
                     if (hasValidUsage(emptyChoicesUsage) && !passthroughForwardedUsageSummary) {
                       usage = resolveTrailingUsageSummary(
                         emptyChoicesUsage,
@@ -2021,6 +2030,93 @@ export function createSSEStream(options: StreamOptions = {}) {
                     // If we already forwarded usage, drop any trailing empty-choices valid usage
                     if (passthroughForwardedUsageSummary && hasValidUsage(emptyChoicesUsage)) {
                       continue;
+=======
+                    if (hasValidUsage(emptyChoicesUsage)) {
+                      const previousPromptTokens = Number(
+                        (usage as Record<string, unknown> | null)?.prompt_tokens ??
+                          (usage as Record<string, unknown> | null)?.input_tokens ??
+                          0
+                      );
+                      const emptyChoicesPromptTokens = Number(
+                        (emptyChoicesUsage as Record<string, unknown>).prompt_tokens ??
+                          (emptyChoicesUsage as Record<string, unknown>).input_tokens ??
+                          0
+                      );
+                      if (
+                        emptyChoicesUsage &&
+                        typeof emptyChoicesUsage === "object" &&
+                        !Array.isArray(emptyChoicesUsage) &&
+                        emptyChoicesPromptTokens === 0
+                      ) {
+                        if (previousPromptTokens > 0) {
+                          (emptyChoicesUsage as Record<string, unknown>).prompt_tokens =
+                            previousPromptTokens;
+                          if (
+                            (emptyChoicesUsage as Record<string, unknown>).input_tokens !==
+                            undefined
+                          ) {
+                            (emptyChoicesUsage as Record<string, unknown>).input_tokens =
+                              previousPromptTokens;
+                          }
+                          const ct = Number(
+                            (emptyChoicesUsage as Record<string, unknown>).completion_tokens ??
+                              (emptyChoicesUsage as Record<string, unknown>).output_tokens ??
+                              0
+                          );
+                          (emptyChoicesUsage as Record<string, unknown>).total_tokens =
+                            previousPromptTokens + ct;
+                        } else {
+                          // Some upstreams (e.g. Ollama Cloud) emit prompt_tokens: 0
+                          // even when input was sent — they simply don't count input
+                          // tokens.  When we have a non-zero output but zero input,
+                          // estimate the real input token count from the request body.
+                          const ct = Number(
+                            (emptyChoicesUsage as Record<string, unknown>).completion_tokens ??
+                              (emptyChoicesUsage as Record<string, unknown>).output_tokens ??
+                              0
+                          );
+                          if (ct > 0) {
+                            const estimated = estimateUsage(
+                              body,
+                              totalContentLength,
+                              sourceFormat || FORMATS.OPENAI
+                            );
+                            if (estimated?.prompt_tokens && estimated.prompt_tokens > 0) {
+                              (emptyChoicesUsage as Record<string, unknown>).prompt_tokens =
+                                estimated.prompt_tokens;
+                              (emptyChoicesUsage as Record<string, unknown>).total_tokens =
+                                (((emptyChoicesUsage as Record<string, unknown>).total_tokens as
+                                  number | undefined) ?? 0) + estimated.prompt_tokens;
+                            }
+                          }
+                        }
+                      }
+
+                      const previousHadOutput = hasOutputTokens(usage);
+                      const newHasOutput = hasOutputTokens(emptyChoicesUsage);
+
+                      usage = carryEstimatedUsageMarker(emptyChoicesUsage, {
+                        ...(usage && typeof usage === "object" ? usage : {}),
+                        ...emptyChoicesUsage,
+                      });
+
+                      if (!passthroughForwardedUsage || (!previousHadOutput && newHasOutput)) {
+                        passthroughForwardedUsage = true;
+                        parsed.usage = emptyChoicesUsage;
+                        output = `data: ${JSON.stringify(parsed)}\n\n`;
+                        injectedUsage = true;
+                        clientPayload = parsed;
+                        clientPayloadCollector.push(clientPayload);
+                        reqLogger?.appendConvertedChunk?.(output);
+                        forward(controller, encoder.encode(output));
+                        continue;
+                      }
+
+                      // If we already forwarded usage with output tokens, drop any duplicate trailing empty-choices valid usage
+                      if (passthroughForwardedUsage && hasValidUsage(emptyChoicesUsage)) {
+                        continue;
+                      }
+>>>>>>> 2722d700d (fix(stream): fix zero completion tokens in ModelScope streaming)
                     }
 
                     console.warn(
@@ -2216,6 +2312,34 @@ export function createSSEStream(options: StreamOptions = {}) {
 
                   const extracted = extractUsage(parsed);
                   if (extracted) {
+                    const prevPt =
+                      (usage as Record<string, unknown> | null)?.prompt_tokens ??
+                      (usage as Record<string, unknown> | null)?.input_tokens;
+                    const newPt =
+                      (extracted as Record<string, unknown>).prompt_tokens ??
+                      (extracted as Record<string, unknown>).input_tokens;
+                    if ((!newPt || Number(newPt) === 0) && prevPt && Number(prevPt) > 0) {
+                      (extracted as Record<string, unknown>).prompt_tokens = Number(prevPt);
+                      if ((extracted as Record<string, unknown>).input_tokens !== undefined) {
+                        (extracted as Record<string, unknown>).input_tokens = Number(prevPt);
+                      }
+                    }
+                    const prevCt = Number(
+                      (usage as Record<string, unknown> | null)?.completion_tokens ??
+                        (usage as Record<string, unknown> | null)?.output_tokens ??
+                        0
+                    );
+                    const newCt = Number(
+                      (extracted as Record<string, unknown>).completion_tokens ??
+                        (extracted as Record<string, unknown>).output_tokens ??
+                        0
+                    );
+                    if (newCt === 0 && prevCt > 0) {
+                      (extracted as Record<string, unknown>).completion_tokens = prevCt;
+                      if ((extracted as Record<string, unknown>).output_tokens !== undefined) {
+                        (extracted as Record<string, unknown>).output_tokens = prevCt;
+                      }
+                    }
                     usage = extracted;
                   }
 
@@ -2259,7 +2383,18 @@ export function createSSEStream(options: StreamOptions = {}) {
                   // and made the real trailing block get dropped in favor of the estimate
                   // (billing regression pinned by tests/unit/stream-utils.test.ts). The
                   // estimate is now emitted in flush(), only when the upstream stayed silent.
-                  if (isFinishChunk && hasValidUsage(usage) && !passthroughForwardedUsage) {
+                  const outputGenerated =
+                    totalContentLength > 0 ||
+                    passthroughHasToolCalls ||
+                    Boolean(passthroughAccumulatedContent) ||
+                    Boolean(passthroughAccumulatedReasoning);
+
+                  if (
+                    isFinishChunk &&
+                    hasValidUsage(usage) &&
+                    (!outputGenerated || hasOutputTokens(usage)) &&
+                    !passthroughForwardedUsage
+                  ) {
                     const buffered = addBufferToUsage(usage);
                     parsed.usage = timing.withTps(
                       carryCacheCreationMarker(
@@ -2269,6 +2404,28 @@ export function createSSEStream(options: StreamOptions = {}) {
                     );
                     output = `data: ${JSON.stringify(parsed)}\n\n`;
                     passthroughForwardedUsage = true;
+                    injectedUsage = true;
+                  } else if (
+                    isFinishChunk &&
+                    outputGenerated &&
+                    !hasOutputTokens(usage) &&
+                    parsed.usage
+                  ) {
+                    // Upstream (e.g. ModelScope) sent dummy/in-progress usage with completion_tokens: 0
+                    // on the finish chunk, but output was produced. Strip it so clients don't see 0
+                    // completion tokens before the real trailing usage chunk or flush estimate arrives.
+                    delete parsed.usage;
+                    output = `data: ${JSON.stringify(parsed)}\n\n`;
+                    injectedUsage = true;
+                  } else if (
+                    !isFinishChunk &&
+                    parsed.usage &&
+                    !hasOutputTokens(parsed.usage as UsageLike)
+                  ) {
+                    // Upstream (e.g. ModelScope) emits in-progress dummy usage with completion_tokens: 0
+                    // on intermediate content chunks. Strip it so clients only receive the final token usage.
+                    delete parsed.usage;
+                    output = `data: ${JSON.stringify(parsed)}\n\n`;
                     injectedUsage = true;
                   } else if (textualToolCallConverted) {
                     output = `data: ${JSON.stringify(parsed)}\n\n`;
@@ -2797,9 +2954,34 @@ export function createSSEStream(options: StreamOptions = {}) {
               forward(controller, encoder.encode(thinkFlush.flushOutput));
             }
 
-            // Estimate usage if provider didn't return valid usage
-            if (!hasValidUsage(usage) && totalContentLength > 0) {
-              usage = estimateUsage(body, totalContentLength, sourceFormat || FORMATS.OPENAI);
+            let outputChars = totalContentLength;
+            if (passthroughHasToolCalls && passthroughToolCalls.size > 0) {
+              for (const tc of passthroughToolCalls.values()) {
+                if (tc.function?.name) outputChars += tc.function.name.length;
+                if (tc.function?.arguments) outputChars += tc.function.arguments.length;
+              }
+            }
+
+            // Estimate usage if provider didn't return valid usage or returned 0 completion tokens despite output
+            if (!hasValidUsage(usage) && outputChars > 0) {
+              usage = estimateUsage(body, outputChars, sourceFormat || FORMATS.OPENAI);
+            } else if (hasValidUsage(usage) && !hasOutputTokens(usage) && outputChars > 0) {
+              const estimatedOut = estimateOutputTokens(outputChars);
+              if (estimatedOut > 0) {
+                const currentPrompt = Number(
+                  (usage as Record<string, unknown>).prompt_tokens ??
+                    (usage as Record<string, unknown>).input_tokens ??
+                    (usage as Record<string, unknown>).promptTokenCount ??
+                    0
+                );
+                usage = {
+                  ...usage,
+                  completion_tokens: estimatedOut,
+                  output_tokens: estimatedOut,
+                  total_tokens: currentPrompt + estimatedOut,
+                  estimated: true,
+                };
+              }
             }
 
             if (hasValidUsage(usage)) {
@@ -3184,6 +3366,27 @@ export function createSSEStream(options: StreamOptions = {}) {
           // Estimate usage if provider didn't return valid usage (for translate mode)
           if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
             state.usage = estimateUsage(body, totalContentLength, sourceFormat);
+          } else if (
+            hasValidUsage(state?.usage) &&
+            !hasOutputTokens(state?.usage as UsageLike) &&
+            totalContentLength > 0
+          ) {
+            const estimatedOut = estimateOutputTokens(totalContentLength);
+            if (estimatedOut > 0) {
+              const currentPrompt = Number(
+                (state.usage as Record<string, unknown>).prompt_tokens ??
+                  (state.usage as Record<string, unknown>).input_tokens ??
+                  (state.usage as Record<string, unknown>).promptTokenCount ??
+                  0
+              );
+              state.usage = {
+                ...state.usage,
+                completion_tokens: estimatedOut,
+                output_tokens: estimatedOut,
+                total_tokens: currentPrompt + estimatedOut,
+                estimated: true,
+              };
+            }
           }
 
           // Send [DONE] (only if not already sent during transform)
