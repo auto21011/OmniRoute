@@ -661,7 +661,10 @@ const ESTIMATED_USAGE_MARKER = Symbol.for("omniroute.usage.estimated");
 
 export function carryEstimatedUsageMarker<T>(source: unknown, rebuilt: T): T {
   const estimated =
-    !!source && typeof source === "object" && (source as UsageLike).estimated === true;
+    !!source &&
+    typeof source === "object" &&
+    ((source as UsageLike).estimated === true ||
+      Reflect.get(source, ESTIMATED_USAGE_MARKER) === true);
   if (estimated && rebuilt && typeof rebuilt === "object") {
     Object.defineProperty(rebuilt, ESTIMATED_USAGE_MARKER, { value: true, enumerable: false });
   }
@@ -703,6 +706,46 @@ export function hasValidUsage(usage: UsageLike | null | undefined) {
     if (typeof usage[field] === "number" && usage[field] > 0) {
       return true;
     }
+  }
+
+  return false;
+}
+
+/**
+ * Check if usage contains valid output token data
+ * Valid = has at least one output/completion/reasoning token field with value > 0
+ */
+export function hasOutputTokens(usage: UsageLike | null | undefined): boolean {
+  if (!usage || typeof usage !== "object") return false;
+
+  const outputFields = [
+    "completion_tokens",
+    "output_tokens",
+    "candidatesTokenCount",
+    "reasoning_tokens",
+    "thoughtsTokenCount",
+  ];
+
+  for (const field of outputFields) {
+    if (typeof usage[field] === "number" && (usage[field] as number) > 0) {
+      return true;
+    }
+  }
+
+  const completionDetails = usage.completion_tokens_details;
+  if (
+    typeof completionDetails?.reasoning_tokens === "number" &&
+    completionDetails.reasoning_tokens > 0
+  ) {
+    return true;
+  }
+
+  const outputDetails = usage.output_tokens_details;
+  if (typeof outputDetails?.reasoning_tokens === "number" && outputDetails.reasoning_tokens > 0) {
+    return true;
+  }
+  if (typeof outputDetails?.thinking_tokens === "number" && outputDetails.thinking_tokens > 0) {
+    return true;
   }
 
   return false;
@@ -802,9 +845,13 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     typeof chunk.response.usage === "object"
   ) {
     const usage = chunk.response.usage;
+    const prompt = usage.input_tokens || usage.prompt_tokens || 0;
+    const completion = usage.output_tokens || usage.completion_tokens || 0;
+    const total = usage.total_tokens ?? prompt + completion;
     return normalizeUsage({
-      prompt_tokens: usage.input_tokens || usage.prompt_tokens || 0,
-      completion_tokens: usage.output_tokens || usage.completion_tokens || 0,
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: total,
       cached_tokens:
         usage.input_tokens_details?.cached_tokens ??
         usage.prompt_tokens_details?.cached_tokens ??
@@ -823,9 +870,13 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     typeof chunk.usage === "object" &&
     (chunk.usage.prompt_tokens !== undefined || chunk.usage.input_tokens !== undefined)
   ) {
+    const prompt = chunk.usage.prompt_tokens ?? chunk.usage.input_tokens ?? 0;
+    const completion = chunk.usage.completion_tokens ?? chunk.usage.output_tokens ?? 0;
+    const total = chunk.usage.total_tokens ?? prompt + completion;
     const normalized = normalizeUsage({
-      prompt_tokens: chunk.usage.prompt_tokens ?? chunk.usage.input_tokens ?? 0,
-      completion_tokens: chunk.usage.completion_tokens ?? chunk.usage.output_tokens ?? 0,
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: total,
       cached_tokens:
         chunk.usage.prompt_tokens_details?.cached_tokens ??
         chunk.usage.input_tokens_details?.cached_tokens ??
