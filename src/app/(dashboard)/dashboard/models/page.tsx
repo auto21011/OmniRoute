@@ -28,6 +28,7 @@ import {
 } from "./comboCatalogUtils";
 import ModelCatalogFiltersComponent from "./ModelCatalogFilters";
 import ModelCatalogTable from "./ModelCatalogTable";
+import ModelPatchesView from "./components/ModelPatchesView";
 import {
   extractCatalogCapabilities,
   filterCatalogModels,
@@ -86,6 +87,8 @@ function useCatalogPageState() {
   /** True once the query string has been read; the URL is never written before that. */
   const [urlApplied, setUrlApplied] = useState(false);
   const [pendingBulkRun, setPendingBulkRun] = useState<PendingBulkRun | null>(null);
+  /** Model id pre-filled into the patches inspector when opened from a catalog row. */
+  const [prefillPatchModel, setPrefillPatchModel] = useState<string | null>(null);
 
   // Models State
   const [models, setModels] = useState<CatalogModelRow[]>([]);
@@ -118,6 +121,8 @@ function useCatalogPageState() {
     ...runner,
     activeTab,
     setActiveTab,
+    prefillPatchModel,
+    setPrefillPatchModel,
     urlApplied,
     setUrlApplied,
     pendingBulkRun,
@@ -450,6 +455,7 @@ function useCatalogPageActions(
     activeTab,
     urlApplied,
     setActiveTab,
+    setPrefillPatchModel,
     setModelFilters,
     setComboFilters,
     setRequestedModelPage,
@@ -475,6 +481,12 @@ function useCatalogPageActions(
 
   const switchTab = (tab: CatalogTab) => {
     setActiveTab(tab);
+  };
+
+  /** Open the patches tab with this catalog row's model pre-filled in the inspector. */
+  const inspectPatchModel = (model: CatalogModelRow) => {
+    setPrefillPatchModel(`${model.providerId}/${model.id}`);
+    setActiveTab("patches");
   };
 
   const updateModelFilters = (patch: Partial<CatalogFilters>) => {
@@ -518,6 +530,7 @@ function useCatalogPageActions(
   return {
     ...selection,
     switchTab,
+    inspectPatchModel,
     updateModelFilters,
     clearModelFilters,
     updateComboFilters,
@@ -637,6 +650,7 @@ function CatalogHeader({ context }: { context: CatalogPageContext }) {
           labels={{
             models: `${t("modelsTab")} (${models.length})`,
             combos: `${t("combosTab")} (${combos.length})`,
+            patches: t("patchesTab"),
           }}
         />
       </header>
@@ -792,6 +806,7 @@ function CatalogModelsResults({ context }: { context: CatalogPageContext }) {
     running,
     activeItemKeys,
     testSingleModel,
+    inspectPatchModel,
   } = context;
   return (
     <ModelCatalogTable
@@ -834,6 +849,7 @@ function CatalogModelsResults({ context }: { context: CatalogPageContext }) {
       onTestModel={testSingleModel}
       providerHealthMap={providerHealthMap}
       bulkRunning={running}
+      onInspectPatch={inspectPatchModel}
     />
   );
 }
@@ -1028,6 +1044,21 @@ function CatalogBulkConfirmation({ context }: { context: CatalogPageContext }) {
     </>
   );
 }
+function CatalogPatchesPanel({ context }: { context: CatalogPageContext }) {
+  const { activeTab, prefillPatchModel } = context;
+  if (activeTab !== "patches") return null;
+  return (
+    <section
+      role="tabpanel"
+      id={catalogPanelId("patches")}
+      aria-labelledby={catalogTabId("patches")}
+      className="flex flex-col gap-4"
+    >
+      <ModelPatchesView prefillModelId={prefillPatchModel ?? undefined} />
+    </section>
+  );
+}
+
 export default function ModelCatalogPage() {
   const context = useCatalogPageContext();
   return (
@@ -1035,6 +1066,7 @@ export default function ModelCatalogPage() {
       <CatalogHeader context={context} />
       <CatalogModelsPanel context={context} />
       <CatalogCombosPanel context={context} />
+      <CatalogPatchesPanel context={context} />
       <CatalogBulkConfirmation context={context} />
     </div>
   );

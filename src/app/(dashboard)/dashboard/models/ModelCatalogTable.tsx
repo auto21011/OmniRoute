@@ -107,6 +107,7 @@ function ModelCatalogTableHead({
   someOnPageSelected,
   onToggleSelectAll,
   showActions,
+  showInspectAction,
 }: {
   labels: ModelCatalogLabels;
   sortField: CatalogSortField;
@@ -116,6 +117,7 @@ function ModelCatalogTableHead({
   someOnPageSelected: boolean;
   onToggleSelectAll?: () => void;
   showActions: boolean;
+  showInspectAction: boolean;
 }) {
   const t = useTranslations("modelCatalog");
   return (
@@ -168,6 +170,7 @@ function ModelCatalogTableHead({
         <PlainHeading>{labels.flags || t("flags")}</PlainHeading>
         <PlainHeading>{t("healthTest")}</PlainHeading>
         {showActions && <ActionsHeading />}
+        {showInspectAction && <ActionsHeading />}
       </tr>
     </thead>
   );
@@ -278,6 +281,7 @@ function ModelCatalogTableRow({
   onToggleSelect,
   onTestModel,
   bulkRunning,
+  onInspectPatch,
 }: {
   model: CatalogModelRow;
   labels: ModelCatalogLabels;
@@ -288,6 +292,7 @@ function ModelCatalogTableRow({
   onToggleSelect?: (id: string) => void;
   onTestModel?: (providerId: string, modelId: string) => void;
   bulkRunning: boolean;
+  onInspectPatch?: (model: CatalogModelRow) => void;
 }) {
   const t = useTranslations("modelCatalog");
   const common = useTranslations("common");
@@ -344,6 +349,19 @@ function ModelCatalogTableRow({
           </Button>
         </td>
       )}
+      {onInspectPatch && (
+        <td className="whitespace-nowrap px-4 py-3 text-right">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="tune"
+            onClick={() => onInspectPatch(model)}
+            title="Inspect / Patch model metadata"
+          >
+            Patch
+          </Button>
+        </td>
+      )}
     </tr>
   );
 }
@@ -371,6 +389,8 @@ interface ModelCatalogTableProps {
   providerHealthMap?: Record<string, "healthy" | "degraded" | "down">;
   /** A bulk run owns the runner; per-row tests wait until it ends. */
   bulkRunning?: boolean;
+  /** Opens the model-patch inspector for this catalog row. */
+  onInspectPatch?: (model: CatalogModelRow) => void;
 }
 
 export default function ModelCatalogTable({
@@ -395,6 +415,7 @@ export default function ModelCatalogTable({
   onTestModel,
   providerHealthMap = {},
   bulkRunning = false,
+  onInspectPatch,
 }: ModelCatalogTableProps) {
   const t = useTranslations("modelCatalog");
   const firstResult = startIndex + 1;
@@ -418,6 +439,7 @@ export default function ModelCatalogTable({
             someOnPageSelected={someOnPageSelected}
             onToggleSelectAll={onToggleSelectAll}
             showActions={Boolean(onTestModel)}
+            showInspectAction={Boolean(onInspectPatch)}
           />
           <tbody className="divide-y divide-border">
             {rows.map((model) => (
@@ -431,6 +453,7 @@ export default function ModelCatalogTable({
                 providerHealthMap={providerHealthMap}
                 onToggleSelect={onToggleSelect}
                 onTestModel={onTestModel}
+                onInspectPatch={onInspectPatch}
                 bulkRunning={bulkRunning}
               />
             ))}

@@ -3,7 +3,7 @@
 import { useRef, type KeyboardEvent } from "react";
 import type { CatalogTab } from "./catalogUrlState";
 
-const TAB_ORDER: CatalogTab[] = ["models", "combos"];
+const TAB_ORDER: CatalogTab[] = ["models", "combos", "patches"];
 
 export function catalogTabId(tab: CatalogTab): string {
   return `tab-${tab}`;

@@ -1,7 +1,7 @@
 import type { ComboCatalogFilters } from "./comboCatalogUtils";
 import type { CatalogFilters } from "./modelCatalogUtils";
 
-export type CatalogTab = "models" | "combos";
+export type CatalogTab = "models" | "combos" | "patches";
 
 export const DEFAULT_MODEL_FILTERS: CatalogFilters = {
   query: "",
@@ -44,7 +44,10 @@ function pickAllowed(raw: string | null, allowed: Set<string>): string {
 }
 
 export function parseCatalogTab(params: URLSearchParams): CatalogTab {
-  return params.get("tab") === "combos" ? "combos" : "models";
+  const raw = params.get("tab");
+  if (raw === "combos") return "combos";
+  if (raw === "patches") return "patches";
+  return "models";
 }
 
 export function parseModelFilters(params: URLSearchParams): CatalogFilters {
@@ -109,7 +112,7 @@ export function buildCatalogSearchParams(
     return params;
   }
 
-  params.set("tab", "combos");
+  params.set("tab", tab);
   setIfActive(params, "query", comboFilters.query);
   setIfActive(params, "strategy", comboFilters.strategy);
   setIfActive(params, "status", comboFilters.status);

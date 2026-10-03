@@ -3400,7 +3400,8 @@
     "httpError": "Request failed with HTTP {status}",
     "testFailedNoDetail": "Test failed without an error message",
     "additionalCapabilities": "Additional capabilities: {list}",
-    "comboRefMember": "Combo → {name}"
+    "comboRefMember": "Combo → {name}",
+    "patchesTab": "Model Patches"
   },
   "combos": {
     "title": "Combos",
