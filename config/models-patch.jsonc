@@ -1,0 +1,365 @@
+{
+  // ==============================================================================
+  // OmniRoute Local Model Metadata Patches (JSONC)
+  //
+  // Use this file to complete and patch model metadata that upstream providers
+  // (such as NVIDIA NIM, vLLM, Ollama, self-hosted gateways, etc.) fail to return.
+  //
+  // OmniRoute automatically monitors this file. Any changes saved here take effect
+  // immediately without restarting OmniRoute.
+  //
+  // Supported fields for each model:
+  // - "name": Human-readable display name.
+  // - "context_length": Maximum input context tokens (e.g. 131072 for 128k).
+  // - "max_output_tokens": Maximum generation output tokens (e.g. 4096, 16384).
+  // - "supported_parameters": Array of supported parameter names, e.g.:
+  //     ["temperature", "top_p", "max_tokens", "stream", "tools", "tool_choice", "response_format", "thinking"]
+  // - "capabilities": Object with boolean flags:
+  //     - "vision": true if model accepts images
+  //     - "reasoning" / "thinking": true if model performs reasoning/thinking
+  //     - "tool_calling": true if model supports function calling
+  //     - "structured_output": true if model supports JSON schema / response_format
+  //     - "effort_tiers": array of reasoning effort tiers, e.g. ["low", "medium", "high"]
+  // - "input_modalities": ["text"], or ["text", "image"], etc.
+  // - "output_modalities": ["text"]
+  // - "type": "chat" | "embedding" | "image" | "rerank"
+  // ==============================================================================
+  "patches": {
+    "nvidia": {
+      // Default parameters supported by all NVIDIA NIM OpenAI-compatible models
+      "*": {
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+      },
+
+      // ─── DeepSeek Reasoning & Chat Models ─────────────────────────────
+      "deepseek-ai/deepseek-r1": {
+        "name": "DeepSeek R1",
+        "context_length": 131072,
+        "max_output_tokens": 16384,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream", "thinking"],
+        "capabilities": {
+          "vision": false,
+          "reasoning": true,
+          "thinking": true,
+          "supportsThinking": true,
+          "tool_calling": false,
+          "structured_output": false,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "deepseek-ai/deepseek-v3": {
+        "name": "DeepSeek V3",
+        "context_length": 131072,
+        "max_output_tokens": 8192,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+          "response_format",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+          "structured_output": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+
+      // ─── Meta Llama 3.3 & 3.1 Series ──────────────────────────────────
+      "meta/llama-3.3-70b-instruct": {
+        "name": "Llama 3.3 70B Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+          "response_format",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+          "structured_output": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "meta/llama-3.1-70b-instruct": {
+        "name": "Llama 3.1 70B Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+          "response_format",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+          "structured_output": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "meta/llama-3.1-8b-instruct": {
+        "name": "Llama 3.1 8B Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+          "response_format",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+          "structured_output": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "meta/llama-3.1-405b-instruct": {
+        "name": "Llama 3.1 405B Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+          "response_format",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+          "structured_output": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+
+      // ─── Meta Llama 3.2 Vision Multimodal Models ─────────────────────
+      "meta/llama-3.2-11b-vision-instruct": {
+        "name": "Llama 3.2 11B Vision Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+        "capabilities": {
+          "vision": true,
+          "reasoning": false,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+      },
+      "meta/llama-3.2-90b-vision-instruct": {
+        "name": "Llama 3.2 90B Vision Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+        "capabilities": {
+          "vision": true,
+          "reasoning": false,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+      },
+
+      // ─── NVIDIA Nemotron Series ──────────────────────────────────────
+      "nvidia/llama-3.1-nemotron-70b-instruct": {
+        "name": "NVIDIA Llama 3.1 Nemotron 70B Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+          "response_format",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+          "structured_output": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "nvidia/llama-3.1-nemotron-51b-instruct": {
+        "name": "NVIDIA Llama 3.1 Nemotron 51B Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "nvidia/neva-22b": {
+        "name": "NVIDIA NeVA 22B (Vision)",
+        "context_length": 4096,
+        "max_output_tokens": 2048,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+        "capabilities": {
+          "vision": true,
+          "reasoning": false,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+      },
+
+      // ─── Microsoft Phi Models ─────────────────────────────────────────
+      "microsoft/phi-3-vision-128k-instruct": {
+        "name": "Phi-3 Vision 128K Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+        "capabilities": {
+          "vision": true,
+          "reasoning": false,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+      },
+      "microsoft/phi-3.5-vision-instruct": {
+        "name": "Phi-3.5 Vision Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+        "capabilities": {
+          "vision": true,
+          "reasoning": false,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+      },
+      "microsoft/phi-3-mini-128k-instruct": {
+        "name": "Phi-3 Mini 128K Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "microsoft/phi-4": {
+        "name": "Phi-4",
+        "context_length": 16384,
+        "max_output_tokens": 4096,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream"],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+
+      // ─── Qwen Models ──────────────────────────────────────────────────
+      "qwen/qwen2.5-72b-instruct": {
+        "name": "Qwen 2.5 72B Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 8192,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+          "response_format",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+          "structured_output": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+      "qwen/qwq-32b-preview": {
+        "name": "QwQ 32B Preview (Reasoning)",
+        "context_length": 32768,
+        "max_output_tokens": 8192,
+        "supported_parameters": ["temperature", "top_p", "max_tokens", "stream", "thinking"],
+        "capabilities": {
+          "vision": false,
+          "reasoning": true,
+          "thinking": true,
+          "supportsThinking": true,
+          "tool_calling": false,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+
+      // ─── Mistral Models ───────────────────────────────────────────────
+      "mistralai/mistral-large-2-instruct": {
+        "name": "Mistral Large 2 Instruct",
+        "context_length": 131072,
+        "max_output_tokens": 4096,
+        "supported_parameters": [
+          "temperature",
+          "top_p",
+          "max_tokens",
+          "stream",
+          "tools",
+          "tool_choice",
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": false,
+          "tool_calling": true,
+        },
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+      },
+    },
+  },
+}

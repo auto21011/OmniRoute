@@ -93,6 +93,8 @@
     "dev": "node --max-old-space-size=8192 scripts/dev/run-next.mjs dev",
     "prebuild:docs": "node scripts/docs/gen-openapi-module.mjs",
     "gen:provider-reference": "bun scripts/docs/gen-provider-reference.ts",
+    "patch:models": "node --import tsx/esm scripts/cli/patch-models.ts",
+    "models:patch": "node --import tsx/esm scripts/cli/patch-models.ts",
     "bench:compression": "bun scripts/compression/benchmark.ts",
     "bench:heap-body": "node --expose-gc --import tsx/esm scripts/perf/request-body-heap.ts",
     "bench:routing-events": "node --import tsx/esm scripts/perf/routing-events-bench.ts",
