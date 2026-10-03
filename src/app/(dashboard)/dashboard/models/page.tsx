@@ -28,6 +28,7 @@ import {
 } from "./comboCatalogUtils";
 import ModelCatalogFiltersComponent from "./ModelCatalogFilters";
 import ModelCatalogTable from "./ModelCatalogTable";
+import ModelPatchesView from "./components/ModelPatchesView";
 import {
   extractCatalogCapabilities,
   filterCatalogModels,
@@ -637,6 +638,7 @@ function CatalogHeader({ context }: { context: CatalogPageContext }) {
           labels={{
             models: `${t("modelsTab")} (${models.length})`,
             combos: `${t("combosTab")} (${combos.length})`,
+            patches: "Model Patches",
           }}
         />
       </header>
@@ -838,6 +840,24 @@ function CatalogModelsResults({ context }: { context: CatalogPageContext }) {
   );
 }
 
+function CatalogPatchesPanel({ context }: { context: CatalogPageContext }) {
+  const { activeTab } = context;
+  return (
+    <>
+      {activeTab === "patches" && (
+        <section
+          role="tabpanel"
+          id={catalogPanelId("patches")}
+          aria-labelledby={catalogTabId("patches")}
+          className="flex flex-col gap-4"
+        >
+          <ModelPatchesView />
+        </section>
+      )}
+    </>
+  );
+}
+
 function CatalogCombosPanel({ context }: { context: CatalogPageContext }) {
   const { activeTab } = context;
   return (
@@ -1035,6 +1055,7 @@ export default function ModelCatalogPage() {
       <CatalogHeader context={context} />
       <CatalogModelsPanel context={context} />
       <CatalogCombosPanel context={context} />
+      <CatalogPatchesPanel context={context} />
       <CatalogBulkConfirmation context={context} />
     </div>
   );

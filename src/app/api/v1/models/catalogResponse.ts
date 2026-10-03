@@ -47,6 +47,7 @@ import { extractApiKey } from "@/sse/services/auth";
 import { maybeOmitCatalogModelName } from "./catalogHelpers";
 import { applyCatalogPage, catalogJsonResponse, parseCatalogPage } from "./catalogPagination";
 import { isCodexModelCatalogClient } from "./catalogRequest";
+import { applyModelPatchToCatalogEntry } from "@/lib/models/modelPatches";
 
 type CatalogVariantAuthorizer = (model: Record<string, any>) => boolean | Promise<boolean>;
 
@@ -372,6 +373,8 @@ export async function finalizeCatalogResponse(
         : entry;
       listedModel = maybeOmitCatalogModelName(listedModel, includeModelNames);
     }
+    listedModel = applyModelPatchToCatalogEntry(listedModel);
+    listedModel = maybeOmitCatalogModelName(listedModel, includeModelNames);
     enriched.push(listedModel);
     catEnrichCount++;
     if (catEnrichCount % catYIELD_EVERY === 0) {
