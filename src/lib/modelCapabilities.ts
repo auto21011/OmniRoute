@@ -30,6 +30,7 @@ export type { ModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityRes
 export { createModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
 export { resolveAudioCapability } from "@/lib/modelCapabilityModalities";
 import { isVisionModelId } from "@/shared/constants/visionModels";
+import { findModelPatch } from "@/lib/models/modelPatches";
 import { getUnsupportedParams } from "@omniroute/open-sse/config/providerRegistry.ts";
 import {
   getLearnedThinkingCap,
@@ -928,25 +929,100 @@ export function getResolvedModelCapabilities(
     attachment = true;
   }
 
+  // Model patches from local JSONC configuration (e.g. config/models-patch.jsonc)
+  const patch = findModelPatch(resolved.provider, resolved.model);
+  const patchCaps = patch?.capabilities;
+
+  const effectiveSupportsVision =
+    patchCaps?.vision !== undefined
+      ? patchCaps.vision
+      : patch?.supportsVision !== undefined
+        ? patch.supportsVision
+        : patch?.input_modalities?.includes("image")
+          ? true
+          : supportsVision;
+
+  const effectiveSupportsThinking =
+    patchCaps?.thinking !== undefined
+      ? patchCaps.thinking
+      : patchCaps?.supportsThinking !== undefined
+        ? patchCaps.supportsThinking
+        : patchCaps?.reasoning !== undefined
+          ? patchCaps.reasoning
+          : patch?.supportsThinking !== undefined
+            ? patch.supportsThinking
+            : supportsThinking;
+
+  const effectiveSupportsTools =
+    patchCaps?.tool_calling !== undefined
+      ? patchCaps.tool_calling
+      : patch?.supportsTools !== undefined
+        ? patch.supportsTools
+        : supportsTools;
+
+  const effectiveContextWindow =
+    patch?.context_length ?? patch?.contextWindow ?? patch?.inputTokenLimit ?? contextWindow;
+
+  const effectiveMaxOutputTokens =
+    patch?.max_output_tokens ??
+    patch?.outputTokenLimit ??
+    maxTokenOverride ??
+    synced?.limit_output ??
+    (typeof registryModel?.maxOutputTokens === "number" ? registryModel.maxOutputTokens : null) ??
+    spec?.maxOutputTokens ??
+    null;
+
+  const effectiveEfforts =
+    patchCaps?.effort_tiers &&
+    Array.isArray(patchCaps.effort_tiers) &&
+    patchCaps.effort_tiers.length > 0
+      ? patchCaps.effort_tiers
+      : (reasoningEffortsOverride ?? registryModel?.supportedThinkingEfforts ?? null);
+
+  const effectiveModalitiesInput =
+    patch?.input_modalities && Array.isArray(patch.input_modalities)
+      ? patch.input_modalities
+      : effectiveSupportsVision === true && !modalitiesInput.includes("image")
+        ? [...modalitiesInput, "image"]
+        : modalitiesInput;
+
+  const effectiveModalitiesOutput =
+    patch?.output_modalities && Array.isArray(patch.output_modalities)
+      ? patch.output_modalities
+      : modalitiesOutput;
+
+  let effectiveAttachment =
+    patchCaps?.attachment !== undefined
+      ? patchCaps.attachment
+      : effectiveSupportsVision === true
+        ? true
+        : attachment;
+
   return {
     provider: resolved.provider,
     model: resolved.model,
     rawModel: resolved.rawModel,
-    toolCalling: supportsTools ?? heuristicToolCalling(lookupKey),
-    reasoning: supportsThinking ?? heuristicReasoning(lookupKey),
-    supportsThinking,
-    supportedThinkingEfforts:
-      reasoningEffortsOverride ?? registryModel?.supportedThinkingEfforts ?? null,
-    reasoningEffortsOverride: reasoningEffortsOverride !== null,
-    supportsTools,
-    supportsVision,
+    toolCalling: effectiveSupportsTools ?? heuristicToolCalling(lookupKey),
+    reasoning: effectiveSupportsThinking ?? heuristicReasoning(lookupKey),
+    supportsThinking: effectiveSupportsThinking,
+    supportedThinkingEfforts: effectiveEfforts,
+    reasoningEffortsOverride:
+      reasoningEffortsOverride !== null || patchCaps?.effort_tiers !== undefined,
+    supportsTools: effectiveSupportsTools,
+    supportsVision: effectiveSupportsVision,
     supportsAudio,
     supportsVideo,
     supportsMaxTokens: heuristicMaxTokens(lookupKey),
-    attachment,
-    structuredOutput: synced?.structured_output ?? null,
-    temperature: synced?.temperature ?? null,
-    contextWindow,
+    attachment: effectiveAttachment,
+    structuredOutput:
+      patchCaps?.structured_output !== undefined
+        ? Boolean(patchCaps.structured_output)
+        : (synced?.structured_output ?? null),
+    temperature:
+      patchCaps?.temperature !== undefined
+        ? Boolean(patchCaps.temperature)
+        : (synced?.temperature ?? null),
+    contextWindow: effectiveContextWindow,
     maxInputTokens: (() => {
       // Input cap is input-only. An explicit `max_input_tokens` override wins;
       // otherwise fall back to the existing per-source input limits, then to the
@@ -955,20 +1031,17 @@ export function getResolvedModelCapabilities(
       // output against this input cap.
       const candidate =
         maxInputOverride ??
+        patch?.inputTokenLimit ??
+        patch?.context_length ??
         (typeof registryModel?.maxInputTokens === "number" ? registryModel.maxInputTokens : null) ??
         authoritativeContextWindow ??
         synced?.limit_input ??
-        contextWindow;
-      return candidate !== null && contextWindow !== null
-        ? Math.min(candidate, contextWindow)
+        effectiveContextWindow;
+      return candidate !== null && effectiveContextWindow !== null
+        ? Math.min(candidate, effectiveContextWindow)
         : candidate;
     })(),
-    maxOutputTokens:
-      maxTokenOverride ??
-      synced?.limit_output ??
-      (typeof registryModel?.maxOutputTokens === "number" ? registryModel.maxOutputTokens : null) ??
-      spec?.maxOutputTokens ??
-      null,
+    maxOutputTokens: effectiveMaxOutputTokens,
     defaultThinkingBudget: spec?.defaultThinkingBudget ?? 0,
     thinkingBudgetCap: spec?.thinkingBudgetCap ?? null,
     thinkingOverhead: spec?.thinkingOverhead ?? null,
@@ -979,8 +1052,8 @@ export function getResolvedModelCapabilities(
     knowledgeCutoff: synced?.knowledge_cutoff ?? null,
     releaseDate: synced?.release_date ?? null,
     lastUpdated: synced?.last_updated ?? null,
-    modalitiesInput,
-    modalitiesOutput,
+    modalitiesInput: effectiveModalitiesInput,
+    modalitiesOutput: effectiveModalitiesOutput,
     interleavedField:
       synced?.interleaved_field ??
       (typeof registryModel?.interleavedField === "string" ? registryModel.interleavedField : null),

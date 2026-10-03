@@ -80,6 +80,7 @@ export default function ModelCatalogTable({
   onPrevious,
   onNext,
   labels,
+  onInspectPatch,
 }: {
   rows: CatalogModelRow[];
   sortField: CatalogSortField;
@@ -93,6 +94,7 @@ export default function ModelCatalogTable({
   error: boolean;
   onPrevious: () => void;
   onNext: () => void;
+  onInspectPatch?: (model: CatalogModelRow) => void;
   labels: {
     provider: string;
     model: string;
@@ -162,6 +164,14 @@ export default function ModelCatalogTable({
               >
                 {labels.flags}
               </th>
+              {onInspectPatch && (
+                <th
+                  scope="col"
+                  className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-text-muted"
+                >
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -246,6 +256,19 @@ export default function ModelCatalogTable({
                       )}
                     </div>
                   </td>
+                  {onInspectPatch && (
+                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon="tune"
+                        onClick={() => onInspectPatch(model)}
+                        title="Inspect / Patch model metadata"
+                      >
+                        Patch
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
