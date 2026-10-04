@@ -2007,7 +2007,6 @@ export function createSSEStream(options: StreamOptions = {}) {
                         !parsed.choices[0]?.finish_reason))
                   ) {
                     const emptyChoicesUsage = extractUsage(parsed) ?? parsed.usage;
-<<<<<<< HEAD
                     if (hasValidUsage(emptyChoicesUsage) && !passthroughForwardedUsageSummary) {
                       usage = resolveTrailingUsageSummary(
                         emptyChoicesUsage,
@@ -2030,93 +2029,6 @@ export function createSSEStream(options: StreamOptions = {}) {
                     // If we already forwarded usage, drop any trailing empty-choices valid usage
                     if (passthroughForwardedUsageSummary && hasValidUsage(emptyChoicesUsage)) {
                       continue;
-=======
-                    if (hasValidUsage(emptyChoicesUsage)) {
-                      const previousPromptTokens = Number(
-                        (usage as Record<string, unknown> | null)?.prompt_tokens ??
-                          (usage as Record<string, unknown> | null)?.input_tokens ??
-                          0
-                      );
-                      const emptyChoicesPromptTokens = Number(
-                        (emptyChoicesUsage as Record<string, unknown>).prompt_tokens ??
-                          (emptyChoicesUsage as Record<string, unknown>).input_tokens ??
-                          0
-                      );
-                      if (
-                        emptyChoicesUsage &&
-                        typeof emptyChoicesUsage === "object" &&
-                        !Array.isArray(emptyChoicesUsage) &&
-                        emptyChoicesPromptTokens === 0
-                      ) {
-                        if (previousPromptTokens > 0) {
-                          (emptyChoicesUsage as Record<string, unknown>).prompt_tokens =
-                            previousPromptTokens;
-                          if (
-                            (emptyChoicesUsage as Record<string, unknown>).input_tokens !==
-                            undefined
-                          ) {
-                            (emptyChoicesUsage as Record<string, unknown>).input_tokens =
-                              previousPromptTokens;
-                          }
-                          const ct = Number(
-                            (emptyChoicesUsage as Record<string, unknown>).completion_tokens ??
-                              (emptyChoicesUsage as Record<string, unknown>).output_tokens ??
-                              0
-                          );
-                          (emptyChoicesUsage as Record<string, unknown>).total_tokens =
-                            previousPromptTokens + ct;
-                        } else {
-                          // Some upstreams (e.g. Ollama Cloud) emit prompt_tokens: 0
-                          // even when input was sent — they simply don't count input
-                          // tokens.  When we have a non-zero output but zero input,
-                          // estimate the real input token count from the request body.
-                          const ct = Number(
-                            (emptyChoicesUsage as Record<string, unknown>).completion_tokens ??
-                              (emptyChoicesUsage as Record<string, unknown>).output_tokens ??
-                              0
-                          );
-                          if (ct > 0) {
-                            const estimated = estimateUsage(
-                              body,
-                              totalContentLength,
-                              sourceFormat || FORMATS.OPENAI
-                            );
-                            if (estimated?.prompt_tokens && estimated.prompt_tokens > 0) {
-                              (emptyChoicesUsage as Record<string, unknown>).prompt_tokens =
-                                estimated.prompt_tokens;
-                              (emptyChoicesUsage as Record<string, unknown>).total_tokens =
-                                (((emptyChoicesUsage as Record<string, unknown>).total_tokens as
-                                  number | undefined) ?? 0) + estimated.prompt_tokens;
-                            }
-                          }
-                        }
-                      }
-
-                      const previousHadOutput = hasOutputTokens(usage);
-                      const newHasOutput = hasOutputTokens(emptyChoicesUsage);
-
-                      usage = carryEstimatedUsageMarker(emptyChoicesUsage, {
-                        ...(usage && typeof usage === "object" ? usage : {}),
-                        ...emptyChoicesUsage,
-                      });
-
-                      if (!passthroughForwardedUsage || (!previousHadOutput && newHasOutput)) {
-                        passthroughForwardedUsage = true;
-                        parsed.usage = emptyChoicesUsage;
-                        output = `data: ${JSON.stringify(parsed)}\n\n`;
-                        injectedUsage = true;
-                        clientPayload = parsed;
-                        clientPayloadCollector.push(clientPayload);
-                        reqLogger?.appendConvertedChunk?.(output);
-                        forward(controller, encoder.encode(output));
-                        continue;
-                      }
-
-                      // If we already forwarded usage with output tokens, drop any duplicate trailing empty-choices valid usage
-                      if (passthroughForwardedUsage && hasValidUsage(emptyChoicesUsage)) {
-                        continue;
-                      }
->>>>>>> 2722d700d (fix(stream): fix zero completion tokens in ModelScope streaming)
                     }
 
                     console.warn(

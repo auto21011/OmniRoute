@@ -927,16 +927,10 @@ export function extractUsage(chunk: UsagePayloadLike | null | undefined) {
     const completion = usage.output_tokens || usage.completion_tokens || 0;
     const total = usage.total_tokens ?? prompt + completion;
     return normalizeUsage({
-<<<<<<< HEAD
       provider_credits: usage.provider_credits,
       cost_in_usd_ticks: usage.cost_in_usd_ticks,
       prompt_tokens: usage.input_tokens || usage.prompt_tokens || 0,
       completion_tokens: usage.output_tokens || usage.completion_tokens || 0,
-=======
-      prompt_tokens: prompt,
-      completion_tokens: completion,
-      total_tokens: total,
->>>>>>> 2722d700d (fix(stream): fix zero completion tokens in ModelScope streaming)
       cached_tokens:
         usage.input_tokens_details?.cached_tokens ??
         usage.prompt_tokens_details?.cached_tokens ??
