@@ -12,10 +12,12 @@ export interface ModelPatchesTranslations {
   patchAction: string;
   patchActionTooltip: string;
 
-  // View toolbar
+  // View toolbar & subtabs
+  subtabUIEditor: string;
   subtabInspector: string;
   subtabEditor: string;
   subtabRules: string;
+  subtabAudit: string;
   statusFilePath: string;
   statusRulesCount: string;
   statusLastModified: string;
@@ -27,6 +29,56 @@ export interface ModelPatchesTranslations {
   syncFailed: string;
   loadFailed: (status: number) => string;
   loadingConfig: string;
+
+  // Visual UI Editor & Rule Manager
+  uiEditorTitle: string;
+  uiEditorDesc: string;
+  btnAddRule: string;
+  btnEditRule: string;
+  btnDuplicate: string;
+  btnDelete: string;
+  btnCancel: string;
+  btnSaveRule: string;
+  btnSavingRule: string;
+  modalCreateTitle: string;
+  modalEditTitle: string;
+  modalDuplicateTitle: string;
+  fieldProvider: string;
+  fieldProviderPlaceholder: string;
+  fieldModelPattern: string;
+  fieldModelPatternPlaceholder: string;
+  fieldModelPatternHelp: string;
+  fieldDisplayName: string;
+  fieldDisplayNamePlaceholder: string;
+  fieldDescription: string;
+  fieldDescriptionPlaceholder: string;
+  fieldContextLength: string;
+  fieldMaxOutputTokens: string;
+  secCapabilities: string;
+  secParameters: string;
+  secModalities: string;
+  capVisionLabel: string;
+  capVisionDesc: string;
+  capThinkingLabel: string;
+  capThinkingDesc: string;
+  capToolsLabel: string;
+  capToolsDesc: string;
+  reasoningEffortLabel: string;
+  defaultEffortLabel: string;
+  tagParamPlaceholder: string;
+  confirmDeleteTitle: string;
+  confirmDeleteDesc: (provider: string, pattern: string) => string;
+  saveRuleSuccess: string;
+  deleteRuleSuccess: string;
+  filterAll: string;
+  filterVision: string;
+  filterThinking: string;
+  filterTools: string;
+  statTotalRules: string;
+  statProviders: string;
+  statVision: string;
+  statThinking: string;
+  statTools: string;
 
   // Inspector
   inspectorTitle: string;
@@ -114,9 +166,11 @@ const enTranslations: ModelPatchesTranslations = {
   patchAction: "Patch",
   patchActionTooltip: "Inspect or configure patch rules for this model",
 
+  subtabUIEditor: "UI Rule Editor",
   subtabInspector: "Inspector & Simulator",
-  subtabEditor: "JSONC Editor",
-  subtabRules: "Rules & Upstream Coverage",
+  subtabEditor: "JSONC Raw Editor",
+  subtabRules: "Rules Directory",
+  subtabAudit: "Upstream Coverage Audit",
   statusFilePath: "Path",
   statusRulesCount: "Active Rules",
   statusLastModified: "Last Modified",
@@ -128,6 +182,59 @@ const enTranslations: ModelPatchesTranslations = {
   syncFailed: "Failed to sync to database",
   loadFailed: (status) => `Failed to load patch configuration (HTTP ${status})`,
   loadingConfig: "Loading model patch configuration...",
+
+  // Visual UI Editor & Rule Manager
+  uiEditorTitle: "Model Patch Rules Manager",
+  uiEditorDesc:
+    "Create, edit, duplicate, and manage model patch rules visually with granular field controls.",
+  btnAddRule: "+ Add Patch Rule",
+  btnEditRule: "Edit Rule",
+  btnDuplicate: "Duplicate",
+  btnDelete: "Delete",
+  btnCancel: "Cancel",
+  btnSaveRule: "Save Rule",
+  btnSavingRule: "Saving...",
+  modalCreateTitle: "New Model Patch Rule",
+  modalEditTitle: "Edit Model Patch Rule",
+  modalDuplicateTitle: "Duplicate Model Patch Rule",
+  fieldProvider: "Provider",
+  fieldProviderPlaceholder: "e.g. nvidia, openai, anthropic...",
+  fieldModelPattern: "Model Pattern or ID",
+  fieldModelPatternPlaceholder: "e.g. meta/llama-3.3-70b-instruct, *...",
+  fieldModelPatternHelp:
+    "Supports exact model IDs, wildcard patterns (e.g. deepseek-ai/*), or '*' for provider default fallback.",
+  fieldDisplayName: "Display Name",
+  fieldDisplayNamePlaceholder: "Friendly name for UI display",
+  fieldDescription: "Description",
+  fieldDescriptionPlaceholder: "Brief description of this model",
+  fieldContextLength: "Context Window (tokens)",
+  fieldMaxOutputTokens: "Max Output Tokens",
+  secCapabilities: "Capabilities & Features",
+  secParameters: "Supported Request Parameters",
+  secModalities: "Input & Output Modalities",
+  capVisionLabel: "Vision / Multimodal",
+  capVisionDesc: "Accepts image URLs and base64 images in message contents.",
+  capThinkingLabel: "Reasoning / Thinking",
+  capThinkingDesc: "Chain-of-thought thinking / reasoning model.",
+  capToolsLabel: "Tool / Function Calling",
+  capToolsDesc: "Supports function calling (tools / tool_choice).",
+  reasoningEffortLabel: "Supported Reasoning Effort Levels",
+  defaultEffortLabel: "Default Reasoning Effort",
+  tagParamPlaceholder: "Type parameter and press Enter...",
+  confirmDeleteTitle: "Delete Patch Rule",
+  confirmDeleteDesc: (provider, pattern) =>
+    `Are you sure you want to delete the patch rule for "${provider}/${pattern}"? This will modify the JSONC configuration.`,
+  saveRuleSuccess: "Patch rule saved and hot-reloaded successfully",
+  deleteRuleSuccess: "Patch rule deleted successfully",
+  filterAll: "All",
+  filterVision: "Vision",
+  filterThinking: "Thinking",
+  filterTools: "Tools",
+  statTotalRules: "Total Rules",
+  statProviders: "Providers",
+  statVision: "Vision Ready",
+  statThinking: "Thinking Ready",
+  statTools: "Tools Ready",
 
   inspectorTitle: "Model Patch Inspector & Simulator",
   inspectorDesc:
@@ -214,9 +321,11 @@ const zhTranslations: ModelPatchesTranslations = {
   patchAction: "补丁",
   patchActionTooltip: "检查或为此模型配置补丁规则",
 
+  subtabUIEditor: "UI 规则编辑器",
   subtabInspector: "补丁检查器与仿真",
-  subtabEditor: "JSONC 编辑器",
-  subtabRules: "规则目录与上游覆盖率",
+  subtabEditor: "JSONC 源码编辑器",
+  subtabRules: "规则目录",
+  subtabAudit: "NVIDIA NIM 上游审计",
   statusFilePath: "文件路径",
   statusRulesCount: "生效规则数",
   statusLastModified: "最近修改",
@@ -228,6 +337,58 @@ const zhTranslations: ModelPatchesTranslations = {
   syncFailed: "同步至数据库失败",
   loadFailed: (status) => `加载补丁配置失败 (HTTP ${status})`,
   loadingConfig: "正在加载模型补丁配置...",
+
+  // Visual UI Editor & Rule Manager
+  uiEditorTitle: "可视化模型补丁规则管理器",
+  uiEditorDesc: "可视化创建、编辑、克隆与管理多条模型补丁规则，精确控制模型各项能力属性。",
+  btnAddRule: "+ 添加补丁规则",
+  btnEditRule: "编辑规则",
+  btnDuplicate: "克隆规则",
+  btnDelete: "删除",
+  btnCancel: "取消",
+  btnSaveRule: "保存规则",
+  btnSavingRule: "正在保存...",
+  modalCreateTitle: "新建模型补丁规则",
+  modalEditTitle: "编辑模型补丁规则",
+  modalDuplicateTitle: "克隆模型补丁规则",
+  fieldProvider: "提供商",
+  fieldProviderPlaceholder: "如 nvidia、openai、anthropic...",
+  fieldModelPattern: "模型匹配模式或 ID",
+  fieldModelPatternPlaceholder: "如 meta/llama-3.3-70b-instruct、*...",
+  fieldModelPatternHelp:
+    "支持精确模型 ID、通配符模式（如 deepseek-ai/*）或 '*'（表示该提供商的通用兜底规则）。",
+  fieldDisplayName: "显示名称",
+  fieldDisplayNamePlaceholder: "在用户界面展示的友好名称",
+  fieldDescription: "说明描述",
+  fieldDescriptionPlaceholder: "该模型的简短描述",
+  fieldContextLength: "上下文窗口大小 (tokens)",
+  fieldMaxOutputTokens: "最大输出 Tokens",
+  secCapabilities: "模型能力与特性开关",
+  secParameters: "支持的请求参数",
+  secModalities: "输入与输出模态",
+  capVisionLabel: "视觉 / 多模态",
+  capVisionDesc: "支持传入图片 URL 或 Base64 格式图像内容。",
+  capThinkingLabel: "思考 / 深度推理",
+  capThinkingDesc: "具备思维链深度思考推理能力（支持 reasoning_effort 等参数）。",
+  capToolsLabel: "工具 / 函数调用",
+  capToolsDesc: "支持传入 tools 参数并执行 Function Calling 工具调用。",
+  reasoningEffortLabel: "支持的思考深度等级 (Reasoning Effort)",
+  defaultEffortLabel: "默认思考等级",
+  tagParamPlaceholder: "输入参数名并按回车添加...",
+  confirmDeleteTitle: "删除模型补丁规则",
+  confirmDeleteDesc: (provider, pattern) =>
+    `确定要删除规则 "${provider}/${pattern}" 吗？此操作将直接更新本地 JSONC 配置文件。`,
+  saveRuleSuccess: "模型补丁规则已成功保存并即时热重载生效",
+  deleteRuleSuccess: "模型补丁规则已成功删除",
+  filterAll: "全部",
+  filterVision: "仅支持视觉",
+  filterThinking: "仅支持思考",
+  filterTools: "仅支持工具",
+  statTotalRules: "总补丁规则",
+  statProviders: "涵盖提供商",
+  statVision: "支持视觉",
+  statThinking: "支持思考",
+  statTools: "支持工具",
 
   inspectorTitle: "模型补丁检查与仿真模拟器",
   inspectorDesc:

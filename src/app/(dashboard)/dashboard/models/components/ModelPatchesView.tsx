@@ -6,6 +6,7 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import ModelPatchInspector from "./ModelPatchInspector";
 import ModelPatchEditor from "./ModelPatchEditor";
 import ModelPatchRulesList, { type PatchRuleEntry } from "./ModelPatchRulesList";
+import ModelPatchUIEditor from "./ModelPatchUIEditor";
 import { useModelPatchesI18n } from "./i18n";
 
 interface PatchesFileInfo {
@@ -19,12 +20,12 @@ interface PatchesFileInfo {
 }
 
 interface ModelPatchesViewProps {
-  initialSubTab?: "inspector" | "editor" | "rules";
+  initialSubTab?: "ui-editor" | "editor" | "inspector" | "rules";
   prefillModelId?: string;
 }
 
 export default function ModelPatchesView({
-  initialSubTab = "inspector",
+  initialSubTab = "ui-editor",
   prefillModelId,
 }: ModelPatchesViewProps) {
   const i18n = useModelPatchesI18n();
@@ -93,17 +94,18 @@ export default function ModelPatchesView({
   };
 
   const handleSelectPatternForEdit = (_pattern: string) => {
-    setSubTab("editor");
+    setSubTab("ui-editor");
   };
 
   const subTabOptions = [
-    { value: "inspector", label: i18n.subtabInspector, icon: "troubleshoot" },
-    { value: "editor", label: i18n.subtabEditor, icon: "edit_note" },
     {
-      value: "rules",
-      label: `${i18n.subtabRules} (${fileInfo?.ruleCount ?? 0})`,
-      icon: "format_list_bulleted",
+      value: "ui-editor",
+      label: `${i18n.subtabUIEditor} (${fileInfo?.ruleCount ?? 0})`,
+      icon: "dashboard_customize",
     },
+    { value: "editor", label: i18n.subtabEditor, icon: "code" },
+    { value: "inspector", label: i18n.subtabInspector, icon: "troubleshoot" },
+    { value: "rules", label: i18n.subtabAudit, icon: "network_check" },
   ];
 
   return (
@@ -208,11 +210,12 @@ export default function ModelPatchesView({
       {/* Main Content Area */}
       {fileInfo && (
         <div>
-          {subTab === "inspector" && (
-            <ModelPatchInspector
-              initialModelId={inspectTargetModel}
-              initialProvider={inspectTargetProvider}
-              onSelectForEdit={handleSelectPatternForEdit}
+          {subTab === "ui-editor" && (
+            <ModelPatchUIEditor
+              entries={fileInfo.entries}
+              onRefresh={loadData}
+              onInspect={handleSelectModelForInspect}
+              prefillPattern={prefillModelId}
             />
           )}
 
@@ -221,6 +224,14 @@ export default function ModelPatchesView({
               initialContent={fileInfo.content}
               filePath={fileInfo.filePath}
               onSaved={loadData}
+            />
+          )}
+
+          {subTab === "inspector" && (
+            <ModelPatchInspector
+              initialModelId={inspectTargetModel}
+              initialProvider={inspectTargetProvider}
+              onSelectForEdit={handleSelectPatternForEdit}
             />
           )}
 
