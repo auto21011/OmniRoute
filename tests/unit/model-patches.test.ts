@@ -13,6 +13,7 @@ import {
   resetModelPatchesCache,
   mergeModelPatches,
   getModelPatchesFileInfo,
+  getModelPatchesFilePath,
   saveModelPatchesContent,
   formatModelPatchesContent,
   inspectModelPatch,
@@ -528,5 +529,36 @@ describe("modelPatches engine", () => {
     assert.ok(!content.includes('"model-b-renamed"'));
     assert.ok(content.includes('"model-a"'));
     assert.ok(content.includes("// Header comment"));
+  });
+
+  it("getModelPatchesFilePath prefers persistent DATA_DIR models-patch.jsonc", () => {
+    const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-persistent-test-"));
+    const originalDataDir = process.env.DATA_DIR;
+    const originalEnvPath = process.env.OMNIROUTE_MODEL_PATCHES_PATH;
+
+    try {
+      delete process.env.OMNIROUTE_MODEL_PATCHES_PATH;
+      process.env.DATA_DIR = testDataDir;
+
+      const persistentFile = path.join(testDataDir, "models-patch.jsonc");
+      fs.writeFileSync(persistentFile, '{\n  "patches": {}\n}\n');
+
+      const resolved = getModelPatchesFilePath();
+      assert.equal(resolved, persistentFile);
+    } finally {
+      if (originalDataDir !== undefined) {
+        process.env.DATA_DIR = originalDataDir;
+      } else {
+        delete process.env.DATA_DIR;
+      }
+      if (originalEnvPath !== undefined) {
+        process.env.OMNIROUTE_MODEL_PATCHES_PATH = originalEnvPath;
+      } else {
+        delete process.env.OMNIROUTE_MODEL_PATCHES_PATH;
+      }
+      try {
+        fs.rmSync(testDataDir, { recursive: true, force: true });
+      } catch {}
+    }
   });
 });
