@@ -127,7 +127,7 @@ export default function ModelPatchesView({
                 {i18n.statusLiveReload}
               </Badge>
               {fileInfo && (
-                <Badge variant="outline" size="sm">
+                <Badge variant="default" size="sm">
                   {i18n.rulesCountUnit(fileInfo.ruleCount)}
                 </Badge>
               )}

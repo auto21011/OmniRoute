@@ -83,6 +83,90 @@ const OUTPUT_PRESETS = [
   { label: "128K", value: 131072 },
 ];
 
+const PRESET_EFFORT_TIERS = ["none", "minimal", "low", "medium", "high", "max", "extended", "auto"];
+
+interface RulePreset {
+  id: string;
+  name: string;
+  provider: string;
+  modelPattern: string;
+  contextLength: string;
+  maxOutputTokens: string;
+  supportsVision: boolean;
+  supportsThinking: boolean;
+  effortTiers: string[];
+  supportsTools: boolean;
+  supportedParameters: string[];
+}
+
+const RULE_PRESETS: RulePreset[] = [
+  {
+    id: "r1",
+    name: "DeepSeek R1 (深度思考)",
+    provider: "deepseek",
+    modelPattern: "deepseek-ai/deepseek-r1",
+    contextLength: "131072",
+    maxOutputTokens: "8192",
+    supportsVision: false,
+    supportsThinking: true,
+    effortTiers: ["low", "medium", "high"],
+    supportsTools: true,
+    supportedParameters: ["temperature", "top_p", "reasoning_effort", "tools", "tool_choice"],
+  },
+  {
+    id: "llama33",
+    name: "Llama 3.3 70B (全能对话)",
+    provider: "nvidia",
+    modelPattern: "meta/llama-3.3-70b-instruct",
+    contextLength: "131072",
+    maxOutputTokens: "4096",
+    supportsVision: false,
+    supportsThinking: false,
+    effortTiers: [],
+    supportsTools: true,
+    supportedParameters: ["temperature", "top_p", "tools", "tool_choice"],
+  },
+  {
+    id: "qwen-vl",
+    name: "Qwen 2.5 VL (视觉多模态)",
+    provider: "nvidia",
+    modelPattern: "qwen/qwen2.5-vl-72b-instruct",
+    contextLength: "131072",
+    maxOutputTokens: "4096",
+    supportsVision: true,
+    supportsThinking: false,
+    effortTiers: [],
+    supportsTools: true,
+    supportedParameters: ["temperature", "top_p", "tools", "tool_choice", "modalities"],
+  },
+  {
+    id: "claude-sonnet",
+    name: "Claude 3.7 Sonnet (思考+视觉)",
+    provider: "anthropic",
+    modelPattern: "claude-3-7-sonnet-*",
+    contextLength: "200000",
+    maxOutputTokens: "65536",
+    supportsVision: true,
+    supportsThinking: true,
+    effortTiers: ["none", "low", "medium", "high"],
+    supportsTools: true,
+    supportedParameters: ["temperature", "top_p", "reasoning_effort", "tools", "tool_choice"],
+  },
+  {
+    id: "universal-thinking",
+    name: "通用思考模型 (*)",
+    provider: "nvidia",
+    modelPattern: "*",
+    contextLength: "131072",
+    maxOutputTokens: "8192",
+    supportsVision: false,
+    supportsThinking: true,
+    effortTiers: ["none", "low", "medium", "high"],
+    supportsTools: true,
+    supportedParameters: ["temperature", "top_p", "reasoning_effort", "tools", "tool_choice"],
+  },
+];
+
 export default function ModelPatchUIEditor({
   entries,
   onRefresh,
@@ -122,6 +206,7 @@ export default function ModelPatchUIEditor({
     outputModalities: ["text"],
   });
   const [customParamInput, setCustomParamInput] = useState("");
+  const [customEffortInput, setCustomEffortInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -224,6 +309,8 @@ export default function ModelPatchUIEditor({
       inputModalities: ["text"],
       outputModalities: ["text"],
     });
+    setCustomParamInput("");
+    setCustomEffortInput("");
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -274,6 +361,8 @@ export default function ModelPatchUIEditor({
       inputModalities: inputMods,
       outputModalities: outputMods,
     });
+    setCustomParamInput("");
+    setCustomEffortInput("");
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -318,6 +407,8 @@ export default function ModelPatchUIEditor({
         ? (p.output_modalities as string[])
         : ["text"],
     });
+    setCustomParamInput("");
+    setCustomEffortInput("");
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -362,6 +453,43 @@ export default function ModelPatchUIEditor({
         : [...prev.effortTiers, tier];
       return { ...prev, effortTiers: next };
     });
+  };
+
+  const handleAddCustomEffort = () => {
+    const val = customEffortInput.trim().toLowerCase();
+    if (!val) return;
+    if (!formData.effortTiers.includes(val)) {
+      setFormData((prev) => ({
+        ...prev,
+        effortTiers: [...prev.effortTiers, val],
+      }));
+    }
+    setCustomEffortInput("");
+  };
+
+  const handleRemoveEffortTier = (tier: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      effortTiers: prev.effortTiers.filter((t) => t !== tier),
+    }));
+  };
+
+  const handleApplyRulePreset = (preset: RulePreset) => {
+    setFormData((prev) => ({
+      ...prev,
+      provider: preset.provider,
+      modelPattern: preset.modelPattern,
+      name: preset.name.split(" (")[0],
+      description: prev.description || "",
+      contextLength: preset.contextLength,
+      maxOutputTokens: preset.maxOutputTokens,
+      supportsVision: preset.supportsVision,
+      supportsThinking: preset.supportsThinking,
+      effortTiers: preset.effortTiers,
+      supportsTools: preset.supportsTools,
+      supportedParameters: preset.supportedParameters,
+      inputModalities: preset.supportsVision ? ["text", "image"] : ["text"],
+    }));
   };
 
   // Submit save
@@ -759,7 +887,7 @@ export default function ModelPatchUIEditor({
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <Badge
-                          variant="outline"
+                          variant="default"
                           size="sm"
                           className="font-semibold uppercase tracking-wider text-[10px]"
                         >
@@ -830,14 +958,20 @@ export default function ModelPatchUIEditor({
                         <span className="material-symbols-outlined text-[13px] text-primary">
                           data_array
                         </span>
-                        <span>{context ? `${(context / 1024).toFixed(0)}K ctx` : "-"}</span>
+                        <span>
+                          {typeof context === "number"
+                            ? `${(context / 1024).toFixed(0)}K ctx`
+                            : "-"}
+                        </span>
                       </div>
                       <span>•</span>
                       <div className="flex items-center gap-1">
                         <span className="material-symbols-outlined text-[13px] text-accent">
                           output
                         </span>
-                        <span>{output ? `${(output / 1024).toFixed(0)}K out` : "-"}</span>
+                        <span>
+                          {typeof output === "number" ? `${(output / 1024).toFixed(0)}K out` : "-"}
+                        </span>
                       </div>
                       {isThinking && effortTiers.length > 0 && (
                         <>
@@ -958,7 +1092,7 @@ export default function ModelPatchUIEditor({
                       className="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors"
                     >
                       <td className="p-3 font-semibold text-text-main">
-                        <Badge variant="outline" size="sm">
+                        <Badge variant="default" size="sm">
                           {entry.provider}
                         </Badge>
                       </td>
@@ -972,7 +1106,7 @@ export default function ModelPatchUIEditor({
                         )}
                       </td>
                       <td className="p-3 text-text-muted">
-                        {entry.patch.name || entry.patch.displayName || "-"}
+                        {String(entry.patch.name || entry.patch.displayName || "-")}
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -1065,7 +1199,8 @@ export default function ModelPatchUIEditor({
               ? i18n.modalEditTitle
               : i18n.modalDuplicateTitle
         }
-        size="lg"
+        size="xl"
+        className="max-w-3xl"
         footer={
           <div className="flex items-center justify-end gap-2 w-full">
             <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
@@ -1085,19 +1220,40 @@ export default function ModelPatchUIEditor({
             </div>
           )}
 
+          {/* Quick Preset Templates Bar */}
+          <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+              <span className="material-symbols-outlined text-[16px]">auto_fix_high</span>
+              <span>{isZh ? "快速预设模板（一键载入常用配置）:" : "Quick Preset Templates:"}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {RULE_PRESETS.map((rp) => (
+                <button
+                  key={rp.id}
+                  type="button"
+                  onClick={() => handleApplyRulePreset(rp)}
+                  className="px-2.5 py-1 rounded-md bg-card border border-border hover:border-primary text-text-main text-[11px] font-medium transition-colors hover:text-primary flex items-center gap-1 shadow-xs"
+                  title={isZh ? `点击一键载入 ${rp.name}` : `Click to load ${rp.name}`}
+                >
+                  <span>{rp.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Identity Section */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-text-main mb-1.5">
                 {i18n.fieldProvider} <span className="text-red-500">*</span>
               </label>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={formData.provider}
                   onChange={(e) => setFormData((prev) => ({ ...prev, provider: e.target.value }))}
                   placeholder={i18n.fieldProviderPlaceholder}
-                  className="flex-1 h-9 rounded-md border border-border bg-card px-3 text-xs text-text-main focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="flex-1 min-w-0 h-9 rounded-md border border-border bg-card px-3 text-xs text-text-main focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <select
                   value=""
@@ -1106,10 +1262,10 @@ export default function ModelPatchUIEditor({
                       setFormData((prev) => ({ ...prev, provider: e.target.value }));
                     }
                   }}
-                  className="h-9 rounded-md border border-border bg-card px-2 text-xs text-text-muted"
-                  title="Select Common Provider"
+                  className="shrink-0 w-28 sm:w-32 h-9 rounded-md border border-border bg-card px-2 text-xs text-text-muted cursor-pointer font-medium"
+                  title={isZh ? "选择常用提供商" : "Select Common Provider"}
                 >
-                  <option value="">{isZh ? "快速预设..." : "Presets..."}</option>
+                  <option value="">{isZh ? "选择提供商..." : "Providers..."}</option>
                   {availableProviders.map((p) => (
                     <option key={p} value={p}>
                       {p}
@@ -1276,31 +1432,90 @@ export default function ModelPatchUIEditor({
                 </div>
 
                 {formData.supportsThinking && (
-                  <div className="pt-2 border-t border-border flex flex-col gap-2">
+                  <div className="pt-2 border-t border-border flex flex-col gap-2.5">
                     <span className="text-[11px] font-medium text-text-muted">
                       {i18n.reasoningEffortLabel}:
                     </span>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {["low", "medium", "high"].map((tier) => {
-                        const checked = formData.effortTiers.includes(tier);
+
+                    {/* Preset Effort Tiers Chips */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {PRESET_EFFORT_TIERS.map((tier) => {
+                        const active = formData.effortTiers.includes(tier);
                         return (
                           <button
                             key={tier}
                             type="button"
                             onClick={() => handleToggleEffortTier(tier)}
-                            className={`px-2.5 py-1 rounded border text-xs font-mono transition-all flex items-center gap-1.5 ${
-                              checked
+                            className={`px-2 py-1 rounded text-xs font-mono transition-all border flex items-center gap-1 ${
+                              active
                                 ? "border-indigo-500 bg-indigo-500/10 text-indigo-500 font-semibold"
-                                : "border-border bg-card text-text-muted hover:border-primary"
+                                : "border-border bg-card text-text-muted hover:border-border-hover hover:text-text-main"
                             }`}
                           >
-                            <span className="material-symbols-outlined text-[14px]">
-                              {checked ? "check_box" : "check_box_outline_blank"}
+                            <span>{tier}</span>
+                            <span className="material-symbols-outlined text-[12px]">
+                              {active ? "close" : "add"}
                             </span>
-                            {tier}
                           </button>
                         );
                       })}
+                    </div>
+
+                    {/* Custom Added Effort Tiers (outside presets) */}
+                    {formData.effortTiers.filter((t) => !PRESET_EFFORT_TIERS.includes(t)).length >
+                      0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        <span className="text-[11px] text-text-muted self-center">
+                          {isZh ? "自定义等级:" : "Custom Tiers:"}
+                        </span>
+                        {formData.effortTiers
+                          .filter((t) => !PRESET_EFFORT_TIERS.includes(t))
+                          .map((tier) => (
+                            <span
+                              key={tier}
+                              className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-500 text-xs font-mono flex items-center gap-1"
+                            >
+                              <span>{tier}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEffortTier(tier)}
+                                className="hover:text-red-500"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">close</span>
+                              </button>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+
+                    {/* Custom Effort Adder */}
+                    <div className="flex items-center gap-2 mt-1">
+                      <input
+                        type="text"
+                        value={customEffortInput}
+                        onChange={(e) => setCustomEffortInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddCustomEffort();
+                          }
+                        }}
+                        placeholder={
+                          isZh
+                            ? "输入自定义思考等级（如 budget:16384、xhigh）并按回车..."
+                            : "Type custom effort tier and press Enter..."
+                        }
+                        className="flex-1 h-8 rounded-md border border-border bg-card px-2.5 text-xs font-mono text-text-main focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon="add"
+                        onClick={handleAddCustomEffort}
+                        disabled={!customEffortInput.trim()}
+                      >
+                        {isZh ? "添加" : "Add"}
+                      </Button>
                     </div>
                   </div>
                 )}
