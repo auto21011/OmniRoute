@@ -24,6 +24,7 @@ import {
   printParseErrorCode,
 } from "jsonc-parser";
 import type { SyncedAvailableModel } from "@/lib/db/models/synced";
+import { resolveDataDir } from "../dataPaths";
 
 export type PatchMatchType = "exact" | "leaf" | "wildcard" | "provider_default" | "global";
 
@@ -98,6 +99,16 @@ export const LOCAL_MODEL_PATCHES_FILENAME = "config/models-patch.local.jsonc";
 
 /**
  * Resolve the active JSONC model patches file path.
+ *
+ * Priority order:
+ * 1. Explicit env var override:
+ *    `OMNIROUTE_MODEL_PATCHES_PATH` || `MODEL_PATCHES_PATH` || `MODEL_PATCHES_FILE`
+ * 2. Local developer override in current working directory:
+ *    `config/models-patch.local.jsonc`
+ * 3. Persistent user directory:
+ *    `<DATA_DIR>/models-patch.jsonc` (e.g. `~/.omniroute/models-patch.jsonc`).
+ *    Persists across global npm upgrades and package reinstalls.
+ *    If not present yet, automatically seeds from existing bundled config/models-patch.jsonc.
  */
 export function getModelPatchesFilePath(): string {
   const envPath =
@@ -113,7 +124,45 @@ export function getModelPatchesFilePath(): string {
     return localPath;
   }
 
-  return path.resolve(process.cwd(), DEFAULT_MODEL_PATCHES_FILENAME);
+  // Persistent user storage (survives global npm reinstalls and package upgrades)
+  const dataDir = resolveDataDir();
+  const persistentPath = path.join(dataDir, "models-patch.jsonc");
+  const persistentConfigPath = path.join(dataDir, "config", "models-patch.jsonc");
+
+  if (fs.existsSync(persistentPath)) {
+    return persistentPath;
+  }
+
+  if (fs.existsSync(persistentConfigPath)) {
+    return persistentConfigPath;
+  }
+
+  // If not yet in persistent storage, check if there is an existing template or custom file:
+  // 1) process.cwd()/config/models-patch.jsonc
+  // 2) relative to current dir (for dist/ packaged runs)
+  const defaultRepoPath = path.resolve(process.cwd(), DEFAULT_MODEL_PATCHES_FILENAME);
+  const baseDir = typeof __dirname !== "undefined" ? __dirname : process.cwd();
+  const distCandidatePath = path.resolve(baseDir, "../../config/models-patch.jsonc");
+
+  const sourcePath = fs.existsSync(defaultRepoPath)
+    ? defaultRepoPath
+    : fs.existsSync(distCandidatePath)
+      ? distCandidatePath
+      : null;
+
+  if (sourcePath) {
+    try {
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      fs.copyFileSync(sourcePath, persistentPath);
+      return persistentPath;
+    } catch {
+      return sourcePath;
+    }
+  }
+
+  return persistentPath;
 }
 
 /**
