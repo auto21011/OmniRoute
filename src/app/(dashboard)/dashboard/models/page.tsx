@@ -16,6 +16,7 @@ import {
 } from "./modelCatalogUtils";
 import ModelCatalogTable from "./ModelCatalogTable";
 import ModelPatchesView from "./components/ModelPatchesView";
+import { useModelPatchesI18n } from "./components/i18n";
 
 const PAGE_SIZE = 50;
 
@@ -26,6 +27,7 @@ function commonText(translator: Translator, key: string, fallback: string): stri
 }
 
 export default function ModelCatalogPage() {
+  const i18n = useModelPatchesI18n();
   const commonTranslator = useTranslations("common") as unknown as Translator;
   const providersTranslator = useTranslations("providers") as unknown as Translator;
   const [activeTab, setActiveTab] = useState<string>("catalog");
@@ -152,17 +154,15 @@ export default function ModelCatalogPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-text-main">
-              {activeTab === "patches" ? "Model Metadata Patches" : "Model Catalog"}
+              {activeTab === "patches" ? i18n.title : i18n.catalogTitle}
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-text-muted">
-              {activeTab === "patches"
-                ? "Enrich sparse upstream models with vision, thinking, context lengths, and parameters via local JSONC rules."
-                : "Browse model metadata and capabilities from every provider in one place."}
+              {activeTab === "patches" ? i18n.description : i18n.catalogDescription}
             </p>
           </div>
           {activeTab === "catalog" && (
             <Button variant="secondary" icon="refresh" loading={loading} onClick={refreshCatalog}>
-              Refresh
+              {i18n.refresh}
             </Button>
           )}
         </div>
@@ -171,8 +171,8 @@ export default function ModelCatalogPage() {
         <div className="flex items-center">
           <SegmentedControl
             options={[
-              { value: "catalog", label: "Model Catalog", icon: "view_list" },
-              { value: "patches", label: "Model Patches", icon: "tune" },
+              { value: "catalog", label: i18n.tabCatalog, icon: "view_list" },
+              { value: "patches", label: i18n.tabPatches, icon: "tune" },
             ]}
             value={activeTab}
             onChange={(val) => {

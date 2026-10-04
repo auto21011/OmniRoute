@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Editor from "@/shared/components/MonacoEditor";
 import { Button, Card, Badge } from "@/shared/components";
-import { MODEL_PATCH_PRESETS, type PatchPreset } from "./patchPresets";
+import { getLocalizedPatchPresets, type PatchPreset } from "./patchPresets";
+import { useModelPatchesI18n, isChineseLocale } from "./i18n";
 
 interface ModelPatchEditorProps {
   initialContent: string;
@@ -16,6 +17,10 @@ export default function ModelPatchEditor({
   filePath,
   onSaved,
 }: ModelPatchEditorProps) {
+  const i18n = useModelPatchesI18n();
+  const isZh = isChineseLocale();
+  const presets = getLocalizedPatchPresets(isZh);
+
   const [content, setContent] = useState(initialContent);
   const [lastSavedContent, setLastSavedContent] = useState(initialContent);
   const [saving, setSaving] = useState(false);
@@ -46,7 +51,10 @@ export default function ModelPatchEditor({
       if (!res.ok) {
         setSaveStatus({
           type: "error",
-          message: data.error || "Failed to save configuration",
+          message:
+            data.line && data.column
+              ? i18n.syntaxErrorLineCol(data.line, data.column, data.error || "")
+              : data.error || (isZh ? "保存配置失败" : "Failed to save configuration"),
           line: data.line,
           column: data.column,
         });
@@ -56,7 +64,9 @@ export default function ModelPatchEditor({
       setLastSavedContent(content);
       setSaveStatus({
         type: "success",
-        message: `Saved successfully! ${data.ruleCount ?? ""} rules active and hot-reloaded.`,
+        message: isZh
+          ? `已成功保存！当前已加载 ${data.ruleCount ?? ""} 条规则并完成热重载。`
+          : `Saved successfully! ${data.ruleCount ?? ""} rules active and hot-reloaded.`,
       });
       onSaved?.();
 
@@ -66,7 +76,12 @@ export default function ModelPatchEditor({
     } catch (err) {
       setSaveStatus({
         type: "error",
-        message: err instanceof Error ? err.message : "Network error occurred while saving",
+        message:
+          err instanceof Error
+            ? err.message
+            : isZh
+              ? "网络异常，保存失败"
+              : "Network error occurred while saving",
       });
     } finally {
       setSaving(false);
@@ -132,12 +147,19 @@ export default function ModelPatchEditor({
 
       setSaveStatus({
         type: "success",
-        message: `Inserted preset "${preset.name}". Review and click Save.`,
+        message: isZh
+          ? `已插入预设模板 "${preset.name}"。请检查后点击保存并热重载。`
+          : `Inserted preset "${preset.name}". Review and click Save.`,
       });
     } catch (err) {
       setSaveStatus({
         type: "error",
-        message: err instanceof Error ? err.message : "Failed to insert preset",
+        message:
+          err instanceof Error
+            ? err.message
+            : isZh
+              ? "插入预设模板失败"
+              : "Failed to insert preset",
       });
     }
   };
@@ -151,7 +173,7 @@ export default function ModelPatchEditor({
           <span className="font-mono text-text-main font-medium">{filePath}</span>
           {hasUnsavedChanges && (
             <Badge variant="warning" size="sm">
-              Unsaved Changes
+              {i18n.unsavedChanges}
             </Badge>
           )}
         </div>
@@ -165,14 +187,14 @@ export default function ModelPatchEditor({
               icon="library_add"
               onClick={() => setPresetDropdownOpen(!presetDropdownOpen)}
             >
-              Insert Preset
+              {i18n.insertPreset}
             </Button>
             {presetDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-card shadow-lg z-20 p-1 flex flex-col gap-0.5">
+              <div className="absolute right-0 top-full mt-1 w-80 rounded-lg border border-border bg-card shadow-lg z-20 p-1 flex flex-col gap-0.5">
                 <span className="px-2 py-1 text-[11px] font-semibold text-text-muted uppercase">
-                  Available Presets
+                  {i18n.insertPreset}
                 </span>
-                {MODEL_PATCH_PRESETS.map((preset) => (
+                {presets.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
@@ -196,7 +218,7 @@ export default function ModelPatchEditor({
             loading={formatting}
             onClick={handleFormat}
           >
-            Format
+            {formatting ? i18n.btnFormatting : i18n.btnFormat}
           </Button>
 
           {hasUnsavedChanges && (
@@ -209,7 +231,7 @@ export default function ModelPatchEditor({
                 setSaveStatus(null);
               }}
             >
-              Reset
+              {isZh ? "放弃修改" : "Reset"}
             </Button>
           )}
 
@@ -221,7 +243,7 @@ export default function ModelPatchEditor({
             disabled={!hasUnsavedChanges && !saving}
             onClick={handleSave}
           >
-            Save & Hot-Reload
+            {saving ? i18n.btnSaving : i18n.btnSave}
           </Button>
         </div>
       </div>

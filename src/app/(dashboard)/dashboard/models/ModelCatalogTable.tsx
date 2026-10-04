@@ -1,5 +1,6 @@
 import { Badge, Button } from "@/shared/components";
 import type { CatalogModelRow, CatalogSortDirection, CatalogSortField } from "./modelCatalogUtils";
+import { useModelPatchesI18n } from "./components/i18n";
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat().format(value);
@@ -107,6 +108,7 @@ export default function ModelCatalogTable({
     free: string;
   };
 }) {
+  const i18n = useModelPatchesI18n();
   const firstResult = startIndex + 1;
   const lastResult = startIndex + rows.length;
 
@@ -263,9 +265,9 @@ export default function ModelCatalogTable({
                         size="sm"
                         icon="tune"
                         onClick={() => onInspectPatch(model)}
-                        title="Inspect / Patch model metadata"
+                        title={i18n.patchActionTooltip}
                       >
-                        Patch
+                        {i18n.patchAction}
                       </Button>
                     </td>
                   )}
