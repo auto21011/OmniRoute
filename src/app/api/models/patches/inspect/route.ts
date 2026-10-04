@@ -25,7 +25,40 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await inspectModelPatch(parsed.data.provider, parsed.data.modelId);
+    let realCatalogEntry: Record<string, unknown> | null = null;
+    try {
+      const { getUnifiedModelsResponse } = await import("@/app/api/v1/models/catalog");
+      const { findModelById } = await import("@/app/api/v1/models/modelById");
+
+      const listResp = await getUnifiedModelsResponse(new Request("http://localhost/v1/models"));
+      if (listResp && listResp.ok) {
+        const listData = (await listResp.json()) as { data?: Array<Record<string, unknown>> };
+        if (Array.isArray(listData?.data)) {
+          const prov = parsed.data.provider;
+          const mod = parsed.data.modelId;
+          const found =
+            findModelById(listData.data, mod) ||
+            (prov ? findModelById(listData.data, `${prov}/${mod}`) : null) ||
+            findModelById(
+              listData.data,
+              mod.includes("/") ? mod.split("/").slice(1).join("/") : mod
+            );
+
+          if (found) {
+            realCatalogEntry = found;
+          }
+        }
+      }
+    } catch {
+      // Gracefully fallback to simulated catalog entry
+    }
+
+    const result = await inspectModelPatch(
+      parsed.data.provider,
+      parsed.data.modelId,
+      undefined,
+      realCatalogEntry
+    );
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to inspect model patch";

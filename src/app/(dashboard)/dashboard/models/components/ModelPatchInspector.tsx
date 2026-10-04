@@ -19,6 +19,7 @@ interface InspectResult {
   effectivePatch: Record<string, unknown> | null;
   simulatedCatalogEntry: Record<string, unknown>;
   resolvedCapabilities: Record<string, unknown>;
+  isLiveCatalogMatch?: boolean;
 }
 
 interface ModelPatchInspectorProps {
@@ -364,16 +365,25 @@ export default function ModelPatchInspector({
             </Card>
           </div>
 
-          {/* Right Column: Simulated JSON Output */}
+          {/* Right Column: /v1/models JSON Output */}
           <Card padding="none" className="overflow-hidden flex flex-col">
             <div className="p-3.5 border-b border-border bg-black/[0.02] dark:bg-white/[0.02] flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="material-symbols-outlined text-text-muted text-[18px]">
                   data_object
                 </span>
                 <span className="text-xs font-semibold text-text-main">
                   {i18n.simulatedJsonTitle}
                 </span>
+                {result.isLiveCatalogMatch ? (
+                  <Badge variant="success" size="sm" dot>
+                    {isZh ? "/v1/models 实时返回" : "Real /v1/models"}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" size="sm">
+                    {isZh ? "未入库 (模拟预览)" : "Simulated Preview"}
+                  </Badge>
+                )}
               </div>
               <Button
                 variant="ghost"
