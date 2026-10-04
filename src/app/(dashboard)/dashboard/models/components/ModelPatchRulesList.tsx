@@ -8,7 +8,7 @@ import { useModelPatchesI18n, isChineseLocale } from "./i18n";
 export interface PatchRuleEntry {
   provider: string;
   modelPattern: string;
-  patch: Record<string, any>;
+  patch: Record<string, unknown>;
 }
 
 interface ModelPatchRulesListProps {
@@ -17,25 +17,11 @@ interface ModelPatchRulesListProps {
   onEdit: (pattern: string) => void;
 }
 
-interface UpstreamCoverageResult {
-  totalUpstreamModels: number;
-  coveredCount: number;
-  coveragePercentage: number;
-  coveredModels: Array<{ id: string; patchRule?: string }>;
-  missingModels: string[];
-}
-
 export default function ModelPatchRulesList({ entries, onInspect }: ModelPatchRulesListProps) {
   const i18n = useModelPatchesI18n();
   const isZh = isChineseLocale();
   const [filterQuery, setFilterQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
-
-  // NIM Coverage Check State
-  const [nimApiKey, setNimApiKey] = useState("");
-  const [checkingNim, setCheckingNim] = useState(false);
-  const [nimResult, setNimResult] = useState<UpstreamCoverageResult | null>(null);
-  const [nimError, setNimError] = useState<string | null>(null);
 
   const providers = Array.from(new Set(entries.map((e) => e.provider))).sort();
 
@@ -50,145 +36,10 @@ export default function ModelPatchRulesList({ entries, onInspect }: ModelPatchRu
     );
   });
 
-  const handleCheckNim = async () => {
-    setCheckingNim(true);
-    setNimError(null);
-
-    try {
-      const res = await fetch("/api/models/patches/check-upstream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: nimApiKey.trim() || undefined }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to check NVIDIA NIM upstream models");
-      }
-
-      setNimResult(data as UpstreamCoverageResult);
-    } catch (err) {
-      setNimError(err instanceof Error ? err.message : "Error checking NIM");
-    } finally {
-      setCheckingNim(false);
-    }
-  };
-
   return (
     <div className="flex flex-col gap-6">
-      {/* NIM Upstream Coverage Card */}
-      <Card padding="none" className="p-5 border border-primary/20 bg-primary/[0.02]">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-text-main flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-[20px]">
-                  network_check
-                </span>
-                {i18n.auditTitle}
-              </h3>
-              <p className="mt-1 text-xs text-text-muted">{i18n.auditDesc}</p>
-            </div>
-            <Button
-              variant="primary"
-              size="sm"
-              icon="radar"
-              loading={checkingNim}
-              onClick={handleCheckNim}
-            >
-              {checkingNim ? i18n.btnAuditing : i18n.btnAudit}
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-3 max-w-md">
-            <Input
-              placeholder={i18n.nimApiKeyPlaceholder}
-              type="password"
-              value={nimApiKey}
-              onChange={(e) => setNimApiKey(e.target.value)}
-              className="text-xs"
-            />
-          </div>
-
-          {nimError && (
-            <div className="text-xs text-red-500 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px]">error</span>
-              <span>{nimError}</span>
-            </div>
-          )}
-
-          {nimResult && (
-            <div className="flex flex-col gap-3 p-4 rounded-lg bg-card border border-border">
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-text-main">
-                    {i18n.coverageLabel}: {nimResult.coveragePercentage}%
-                  </span>
-                  <span className="text-text-muted">
-                    (
-                    {i18n.modelsCoveredUnit(
-                      nimResult.coveredCount,
-                      nimResult.totalUpstreamModels,
-                      nimResult.coveragePercentage
-                    )}
-                    )
-                  </span>
-                </div>
-                <Badge
-                  variant={nimResult.coveragePercentage > 50 ? "success" : "warning"}
-                  size="sm"
-                >
-                  {nimResult.coveredCount} {isZh ? "已覆盖" : "Covered"}
-                </Badge>
-              </div>
-
-              {/* Progress bar */}
-              <div className="w-full h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                  style={{ width: `${nimResult.coveragePercentage}%` }}
-                />
-              </div>
-
-              {nimResult.missingModels.length > 0 ? (
-                <div className="flex flex-col gap-2 pt-2 border-t border-border">
-                  <span className="text-xs font-semibold text-text-muted">
-                    {i18n.unpatchedModelsTitle} ({nimResult.missingModels.length}):
-                  </span>
-                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1">
-                    {nimResult.missingModels.slice(0, 30).map((modelId) => (
-                      <button
-                        key={modelId}
-                        type="button"
-                        onClick={() => onInspect(`nvidia/${modelId}`, "nvidia")}
-                        className="px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 border border-border hover:border-primary text-[11px] font-mono text-text-main flex items-center gap-1 group"
-                        title={isZh ? "点击在检查器中测试该模型" : "Click to inspect this model"}
-                      >
-                        <span>{modelId}</span>
-                        <span className="material-symbols-outlined text-[12px] opacity-0 group-hover:opacity-100 text-primary">
-                          open_in_new
-                        </span>
-                      </button>
-                    ))}
-                    {nimResult.missingModels.length > 30 && (
-                      <span className="text-xs text-text-muted self-center">
-                        +{nimResult.missingModels.length - 30} {isZh ? "个更多" : "more"}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="pt-2 border-t border-border text-xs text-emerald-500 font-medium">
-                  {i18n.allCovered}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </Card>
-
       {/* Rules Directory Table */}
-      <Card padding="none" className="overflow-hidden">
+      <Card padding="none" className="overflow-hidden border border-border">
         {/* Table Filter Bar */}
         <div className="p-4 border-b border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="flex-1 max-w-sm">
@@ -235,7 +86,7 @@ export default function ModelPatchRulesList({ entries, onInspect }: ModelPatchRu
             </thead>
             <tbody className="divide-y divide-border">
               {filteredEntries.map((entry, idx) => {
-                const caps = entry.patch.capabilities || {};
+                const caps = (entry.patch.capabilities || {}) as Record<string, unknown>;
                 const isVision = caps.vision === true || entry.patch.supportsVision === true;
                 const isThinking =
                   caps.thinking === true ||
@@ -265,7 +116,7 @@ export default function ModelPatchRulesList({ entries, onInspect }: ModelPatchRu
                       )}
                     </td>
                     <td className="p-3 text-text-muted">
-                      {entry.patch.name || entry.patch.displayName || "-"}
+                      {String(entry.patch.name || entry.patch.displayName || "-")}
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -290,10 +141,10 @@ export default function ModelPatchRulesList({ entries, onInspect }: ModelPatchRu
                       </div>
                     </td>
                     <td className="p-3 font-mono text-text-main">
-                      {context ? `${context.toLocaleString()} tokens` : "-"}
+                      {typeof context === "number" ? `${context.toLocaleString()} tokens` : "-"}
                     </td>
                     <td className="p-3 font-mono text-text-main">
-                      {output ? `${output.toLocaleString()} tokens` : "-"}
+                      {typeof output === "number" ? `${output.toLocaleString()} tokens` : "-"}
                     </td>
                     <td className="p-3 text-right">
                       <Button

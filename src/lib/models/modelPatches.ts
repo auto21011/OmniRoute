@@ -831,6 +831,7 @@ export interface ModelInspectResult {
   effectivePatch: ModelPatch | null;
   simulatedCatalogEntry: Record<string, unknown>;
   resolvedCapabilities: Record<string, unknown>;
+  isLiveCatalogMatch?: boolean;
 }
 
 /**
@@ -1055,11 +1056,17 @@ export function deleteModelPatchEntry(
 
 /**
  * Inspect how a model ID and provider will be patched and resolved.
+ *
+ * Queries the real /v1/models catalog first so the returned JSON matches
+ * the exact response clients receive from OmniRoute. If the model is not currently
+ * in the active /v1/models catalog (e.g. unconfigured or test pattern), falls back
+ * to a simulated entry built from the active patch rules.
  */
 export async function inspectModelPatch(
   provider: string | undefined,
   modelId: string,
-  config?: ModelPatchesConfig
+  config?: ModelPatchesConfig,
+  realCatalogEntry?: Record<string, unknown> | null
 ): Promise<ModelInspectResult> {
   const activeConfig = config || loadModelPatches();
   const prov = provider || (modelId.includes("/") ? modelId.split("/")[0] : "nvidia");
@@ -1078,7 +1085,8 @@ export async function inspectModelPatch(
     owned_by: prov,
     root: mod,
   };
-  const simulatedCatalogEntry = applyModelPatchToCatalogEntry(sampleEntry, prov, mod, activeConfig);
+  const catalogEntry =
+    realCatalogEntry || applyModelPatchToCatalogEntry(sampleEntry, prov, mod, activeConfig);
 
   const { getResolvedModelCapabilities } = await import("@/lib/modelCapabilities");
   const resolvedCapabilities = getResolvedModelCapabilities({ provider: prov, model: mod });
@@ -1089,8 +1097,9 @@ export async function inspectModelPatch(
     provider: prov,
     matchedRule: matchDetail,
     effectivePatch,
-    simulatedCatalogEntry,
+    simulatedCatalogEntry: catalogEntry,
     resolvedCapabilities: resolvedCapabilities as unknown as Record<string, unknown>,
+    isLiveCatalogMatch: Boolean(realCatalogEntry),
   };
 }
 

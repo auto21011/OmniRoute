@@ -105,7 +105,11 @@ export default function ModelPatchesView({
     },
     { value: "editor", label: i18n.subtabEditor, icon: "code" },
     { value: "inspector", label: i18n.subtabInspector, icon: "troubleshoot" },
-    { value: "rules", label: i18n.subtabAudit, icon: "network_check" },
+    {
+      value: "rules",
+      label: `${i18n.subtabRules} (${fileInfo?.ruleCount ?? 0})`,
+      icon: "format_list_bulleted",
+    },
   ];
 
   return (
