@@ -6,6 +6,7 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import ModelPatchInspector from "./ModelPatchInspector";
 import ModelPatchEditor from "./ModelPatchEditor";
 import ModelPatchRulesList, { type PatchRuleEntry } from "./ModelPatchRulesList";
+import { useModelPatchesI18n } from "./i18n";
 
 interface PatchesFileInfo {
   filePath: string;
@@ -26,6 +27,7 @@ export default function ModelPatchesView({
   initialSubTab = "inspector",
   prefillModelId,
 }: ModelPatchesViewProps) {
+  const i18n = useModelPatchesI18n();
   const [subTab, setSubTab] = useState<string>(initialSubTab);
   const [fileInfo, setFileInfo] = useState<PatchesFileInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,16 +49,16 @@ export default function ModelPatchesView({
     try {
       const res = await fetch("/api/models/patches");
       if (!res.ok) {
-        throw new Error(`Failed to load patch configuration (HTTP ${res.status})`);
+        throw new Error(i18n.loadFailed(res.status));
       }
       const data = (await res.json()) as PatchesFileInfo;
       setFileInfo(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load patch data");
+      setError(err instanceof Error ? err.message : i18n.loadFailed(500));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [i18n]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -73,14 +75,12 @@ export default function ModelPatchesView({
       const res = await fetch("/api/models/patches/apply", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || "Failed to sync to database");
+        throw new Error(data.error || i18n.syncFailed);
       }
-      setSyncDbResult(
-        data.message || `Successfully synced ${data.capabilitiesCount} records to database.`
-      );
+      setSyncDbResult(data.message || i18n.syncSuccess(data.capabilitiesCount ?? 0));
       setTimeout(() => setSyncDbResult(null), 5000);
     } catch (err) {
-      setSyncDbResult(err instanceof Error ? `Error: ${err.message}` : "Sync failed");
+      setSyncDbResult(err instanceof Error ? `Error: ${err.message}` : i18n.syncFailed);
     } finally {
       setSyncingDb(false);
     }
@@ -97,11 +97,11 @@ export default function ModelPatchesView({
   };
 
   const subTabOptions = [
-    { value: "inspector", label: "Live Inspector", icon: "troubleshoot" },
-    { value: "editor", label: "JSONC Editor", icon: "edit_note" },
+    { value: "inspector", label: i18n.subtabInspector, icon: "troubleshoot" },
+    { value: "editor", label: i18n.subtabEditor, icon: "edit_note" },
     {
       value: "rules",
-      label: `Rules Directory (${fileInfo?.ruleCount ?? 0})`,
+      label: `${i18n.subtabRules} (${fileInfo?.ruleCount ?? 0})`,
       icon: "format_list_bulleted",
     },
   ];
@@ -115,25 +115,26 @@ export default function ModelPatchesView({
             <div className="flex items-center gap-2.5 flex-wrap">
               <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
                 <span className="material-symbols-outlined text-primary text-[22px]">tune</span>
-                Model Metadata Patches
+                {i18n.title}
               </h2>
               <Badge variant="success" size="sm" dot>
-                Live Hot-Reload Active
+                {i18n.statusLiveReload}
               </Badge>
               {fileInfo && (
                 <Badge variant="outline" size="sm">
-                  {fileInfo.ruleCount} Active Rules
+                  {i18n.rulesCountUnit(fileInfo.ruleCount)}
                 </Badge>
               )}
             </div>
-            <p className="text-xs text-text-muted">
-              Enriches sparse upstream models (such as NVIDIA NIM returning bare IDs) with vision,
-              thinking, context lengths, and supported parameters.
-            </p>
+            <p className="text-xs text-text-muted">{i18n.description}</p>
             <div className="flex items-center gap-3 text-xs text-text-muted mt-1 font-mono">
-              <span>Path: {fileInfo?.filePath || "config/models-patch.jsonc"}</span>
+              <span>
+                {i18n.statusFilePath}: {fileInfo?.filePath || "config/models-patch.jsonc"}
+              </span>
               {fileInfo?.mtime && (
-                <span>Modified: {new Date(fileInfo.mtime).toLocaleTimeString()}</span>
+                <span>
+                  {i18n.statusLastModified}: {new Date(fileInfo.mtime).toLocaleTimeString()}
+                </span>
               )}
             </div>
           </div>
@@ -144,18 +145,18 @@ export default function ModelPatchesView({
               icon="database"
               loading={syncingDb}
               onClick={handleSyncToDb}
-              title="Sync context window and token limits into SQLite database"
+              title={i18n.btnSyncDb}
             >
-              Sync to SQLite
+              {syncingDb ? i18n.btnSyncingDb : i18n.btnSyncDb}
             </Button>
             <Button
               variant="ghost"
               icon="refresh"
               loading={loading}
               onClick={loadData}
-              title="Reload configuration from disk"
+              title={i18n.btnReload}
             >
-              Reload
+              {i18n.btnReload}
             </Button>
           </div>
         </div>
@@ -190,7 +191,7 @@ export default function ModelPatchesView({
       {/* Loading state */}
       {loading && !fileInfo && (
         <div className="flex items-center justify-center p-12 text-sm text-text-muted">
-          Loading model patch configuration...
+          {i18n.loadingConfig}
         </div>
       )}
 

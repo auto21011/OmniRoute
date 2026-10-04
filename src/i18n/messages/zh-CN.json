@@ -3401,7 +3401,9 @@
     "testFailedNoDetail": "测试失败且未提供错误信息",
     "additionalCapabilities": "额外能力：{list}",
     "comboRefMember": "组合 → {name}",
-    "patchesTab": "模型补丁"
+    "patchesTab": "模型补丁",
+    "patchAction": "补丁",
+    "patchActionHint": "查看 / 修改模型元数据"
   },
   "combos": {
     "autoTosIncludeLabel": "在 auto 中包含标记为 ToS: avoid 的提供者",

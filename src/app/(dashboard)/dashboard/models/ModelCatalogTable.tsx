@@ -356,9 +356,9 @@ function ModelCatalogTableRow({
             size="sm"
             icon="tune"
             onClick={() => onInspectPatch(model)}
-            title="Inspect / Patch model metadata"
+            title={t("patchActionHint")}
           >
-            Patch
+            {t("patchAction")}
           </Button>
         </td>
       )}

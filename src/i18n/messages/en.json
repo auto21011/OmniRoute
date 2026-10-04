@@ -3401,7 +3401,9 @@
     "testFailedNoDetail": "Test failed without an error message",
     "additionalCapabilities": "Additional capabilities: {list}",
     "comboRefMember": "Combo → {name}",
-    "patchesTab": "Model Patches"
+    "patchesTab": "Model Patches",
+    "patchAction": "Patch",
+    "patchActionHint": "Inspect / Patch model metadata"
   },
   "combos": {
     "title": "Combos",
