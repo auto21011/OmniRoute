@@ -30,7 +30,9 @@ export async function POST(request: Request) {
       const { getUnifiedModelsResponse } = await import("@/app/api/v1/models/catalog");
       const { findModelById } = await import("@/app/api/v1/models/modelById");
 
-      const listResp = await getUnifiedModelsResponse(new Request("http://localhost/v1/models"));
+      const listResp = await getUnifiedModelsResponse(
+        new Request("http://localhost/v1/models", { headers: request.headers })
+      );
       if (listResp && listResp.ok) {
         const listData = (await listResp.json()) as { data?: Array<Record<string, unknown>> };
         if (Array.isArray(listData?.data)) {

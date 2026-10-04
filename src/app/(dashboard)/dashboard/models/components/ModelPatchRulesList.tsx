@@ -102,7 +102,7 @@ export default function ModelPatchRulesList({ entries, onInspect }: ModelPatchRu
                     className="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors"
                   >
                     <td className="p-3 font-semibold text-text-main">
-                      <Badge variant="outline" size="sm">
+                      <Badge variant="default" size="sm">
                         {entry.provider}
                       </Badge>
                     </td>
