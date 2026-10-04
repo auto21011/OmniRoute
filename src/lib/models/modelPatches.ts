@@ -19,6 +19,7 @@ import {
   parse as parseJsonc,
   format as formatJsonc,
   applyEdits,
+  modify as modifyJsonc,
   type ParseError,
   printParseErrorCode,
 } from "jsonc-parser";
@@ -879,6 +880,128 @@ export function saveModelPatchesContent(
 export function formatModelPatchesContent(content: string): string {
   const edits = formatJsonc(content, undefined, { insertSpaces: true, tabSize: 2 });
   return applyEdits(content, edits);
+}
+
+/**
+ * Upsert (create or update) a single patch entry in the JSONC file while preserving comments.
+ */
+export function upsertModelPatchEntry(
+  provider: string,
+  modelPattern: string,
+  patch: ModelPatch,
+  options?: {
+    oldProvider?: string;
+    oldModelPattern?: string;
+    customPath?: string;
+  }
+): SaveModelPatchesResult {
+  const filePath = options?.customPath
+    ? path.resolve(process.cwd(), options.customPath)
+    : getModelPatchesFilePath();
+
+  let content = '{\n  "patches": {}\n}\n';
+  if (fs.existsSync(filePath)) {
+    content = fs.readFileSync(filePath, "utf-8");
+  }
+
+  const parsed = parseJsonc(content);
+  const hasPatchesKey = Boolean(
+    parsed &&
+    typeof parsed === "object" &&
+    "patches" in parsed &&
+    parsed.patches &&
+    typeof parsed.patches === "object" &&
+    !Array.isArray(parsed.patches)
+  );
+
+  // If old pattern needs to be renamed/moved
+  if (
+    options?.oldModelPattern &&
+    options?.oldProvider &&
+    (options.oldModelPattern !== modelPattern || options.oldProvider !== provider)
+  ) {
+    const oldPath = hasPatchesKey
+      ? ["patches", options.oldProvider, options.oldModelPattern]
+      : [options.oldProvider, options.oldModelPattern];
+
+    const oldParent = hasPatchesKey
+      ? (parsed.patches as Record<string, unknown>)?.[options.oldProvider]
+      : (parsed as Record<string, unknown>)?.[options.oldProvider];
+
+    if (oldParent && typeof oldParent === "object" && options.oldModelPattern in oldParent) {
+      const removeEdits = modifyJsonc(content, oldPath, undefined, {});
+      content = applyEdits(content, removeEdits);
+    }
+  }
+
+  // Clean patch fields: remove empty or undefined fields
+  const cleanPatch: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== undefined && v !== null && v !== "") {
+      cleanPatch[k] = v;
+    }
+  }
+
+  // Determine path for new patch
+  const targetPath = hasPatchesKey ? ["patches", provider, modelPattern] : [provider, modelPattern];
+
+  // Upsert the new patch rule
+  const edits = modifyJsonc(content, targetPath, cleanPatch, {
+    formattingOptions: { insertSpaces: true, tabSize: 2 },
+  });
+  content = applyEdits(content, edits);
+
+  // Format cleanly
+  const formatted = formatModelPatchesContent(content);
+
+  // Save to file and reload cache
+  return saveModelPatchesContent(formatted, filePath);
+}
+
+/**
+ * Delete a single patch entry in the JSONC file while preserving comments.
+ */
+export function deleteModelPatchEntry(
+  provider: string,
+  modelPattern: string,
+  customPath?: string
+): SaveModelPatchesResult {
+  const filePath = customPath ? path.resolve(process.cwd(), customPath) : getModelPatchesFilePath();
+
+  if (!fs.existsSync(filePath)) {
+    return { ok: true, ruleCount: 0 };
+  }
+
+  let content = fs.readFileSync(filePath, "utf-8");
+  const parsed = parseJsonc(content);
+  if (!parsed || typeof parsed !== "object") {
+    return { ok: true, ruleCount: 0 };
+  }
+
+  const hasPatchesKey = Boolean(
+    "patches" in parsed &&
+    parsed.patches &&
+    typeof parsed.patches === "object" &&
+    !Array.isArray(parsed.patches)
+  );
+
+  const targetPath = hasPatchesKey ? ["patches", provider, modelPattern] : [provider, modelPattern];
+
+  // Check if target actually exists before trying to modify
+  const parentObj = hasPatchesKey
+    ? (parsed.patches as Record<string, unknown>)?.[provider]
+    : (parsed as Record<string, unknown>)?.[provider];
+
+  if (!parentObj || typeof parentObj !== "object" || !(modelPattern in parentObj)) {
+    const fileInfo = getModelPatchesFileInfo(filePath);
+    return { ok: true, ruleCount: fileInfo.ruleCount, mtime: fileInfo.mtime ?? undefined };
+  }
+
+  const edits = modifyJsonc(content, targetPath, undefined, {});
+  content = applyEdits(content, edits);
+
+  const formatted = formatModelPatchesContent(content);
+  return saveModelPatchesContent(formatted, filePath);
 }
 
 /**

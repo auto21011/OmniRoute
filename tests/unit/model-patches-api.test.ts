@@ -16,6 +16,7 @@ process.env.OMNIROUTE_MODEL_PATCHES_PATH = patchFilePath;
 const patchesRoute = await import("../../src/app/api/models/patches/route.ts");
 const inspectRoute = await import("../../src/app/api/models/patches/inspect/route.ts");
 const applyRoute = await import("../../src/app/api/models/patches/apply/route.ts");
+const entryRoute = await import("../../src/app/api/models/patches/entry/route.ts");
 
 test.beforeEach(() => {
   resetModelPatchesCache();
@@ -174,4 +175,51 @@ test("POST /api/models/patches/apply syncs patches to SQLite", async () => {
   const data = (await res.json()) as ApiResponse;
   assert.equal(data.success, true);
   assert.ok(typeof data.capabilitiesCount === "number");
+});
+
+test("POST /api/models/patches/entry creates and updates patch rule entry", async () => {
+  const req = await makeManagementSessionRequest("http://localhost/api/models/patches/entry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      provider: "nvidia",
+      modelPattern: "new-custom-model",
+      patch: {
+        name: "New Custom Model",
+        context_length: 131072,
+        capabilities: { vision: true, thinking: true },
+        supported_parameters: ["tools", "temperature"],
+      },
+    }),
+  });
+  const res = await entryRoute.POST(req);
+  assert.equal(res.status, 200);
+
+  const data = (await res.json()) as ApiResponse;
+  assert.equal(data.success, true);
+
+  const fileContent = fs.readFileSync(patchFilePath, "utf-8");
+  assert.ok(fileContent.includes("new-custom-model"));
+  assert.ok(fileContent.includes("New Custom Model"));
+  assert.ok(fileContent.includes("// Initial test configuration")); // comments preserved
+});
+
+test("DELETE /api/models/patches/entry deletes patch rule entry", async () => {
+  const req = await makeManagementSessionRequest("http://localhost/api/models/patches/entry", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      provider: "nvidia",
+      modelPattern: "test-model",
+    }),
+  });
+  const res = await entryRoute.DELETE(req);
+  assert.equal(res.status, 200);
+
+  const data = (await res.json()) as ApiResponse;
+  assert.equal(data.success, true);
+
+  const fileContent = fs.readFileSync(patchFilePath, "utf-8");
+  assert.ok(!fileContent.includes('"test-model"'));
+  assert.ok(fileContent.includes("// Initial test configuration")); // comments preserved
 });

@@ -16,6 +16,8 @@ import {
   saveModelPatchesContent,
   formatModelPatchesContent,
   inspectModelPatch,
+  upsertModelPatchEntry,
+  deleteModelPatchEntry,
   type ModelPatchesConfig,
 } from "@/lib/models/modelPatches";
 import { getResolvedModelCapabilities } from "@/lib/modelCapabilities";
@@ -444,5 +446,87 @@ describe("modelPatches engine", () => {
     assert.equal(inspected.effectivePatch?.context_length, 131072);
     assert.equal(inspected.simulatedCatalogEntry.name, "Llama 3.3 70B Instruct");
     assert.equal(inspected.simulatedCatalogEntry.context_length, 131072);
+  });
+
+  it("upsertModelPatchEntry and deleteModelPatchEntry surgically modify JSONC preserving comments", () => {
+    const initial = `// Header comment
+{
+  // Patches map
+  "patches": {
+    /* Nvidia models */
+    "nvidia": {
+      // First model
+      "model-a": {
+        "name": "Model A",
+        "context_length": 32768
+      }
+    }
+  }
+}`;
+    fs.writeFileSync(tmpPatchFile, initial);
+
+    // 1. Insert a new model entry
+    const insertResult = upsertModelPatchEntry(
+      "nvidia",
+      "model-b",
+      {
+        name: "Model B",
+        context_length: 65536,
+        capabilities: { vision: true },
+      },
+      { customPath: tmpPatchFile }
+    );
+    assert.equal(insertResult.ok, true);
+
+    let content = fs.readFileSync(tmpPatchFile, "utf-8");
+    assert.ok(content.includes("// Header comment"));
+    assert.ok(content.includes("/* Nvidia models */"));
+    assert.ok(content.includes("// First model"));
+    assert.ok(content.includes('"model-b"'));
+    assert.ok(content.includes('"Model B"'));
+
+    // 2. Update an existing model entry
+    const updateResult = upsertModelPatchEntry(
+      "nvidia",
+      "model-a",
+      {
+        name: "Model A Updated",
+        context_length: 131072,
+      },
+      { customPath: tmpPatchFile }
+    );
+    assert.equal(updateResult.ok, true);
+
+    content = fs.readFileSync(tmpPatchFile, "utf-8");
+    assert.ok(content.includes('"Model A Updated"'));
+    assert.ok(content.includes("// Header comment"));
+
+    // 3. Rename a model entry
+    const renameResult = upsertModelPatchEntry(
+      "nvidia",
+      "model-b-renamed",
+      {
+        name: "Model B Renamed",
+      },
+      {
+        oldProvider: "nvidia",
+        oldModelPattern: "model-b",
+        customPath: tmpPatchFile,
+      }
+    );
+    assert.equal(renameResult.ok, true);
+
+    content = fs.readFileSync(tmpPatchFile, "utf-8");
+    assert.ok(!content.includes('"model-b":'));
+    assert.ok(content.includes('"model-b-renamed"'));
+
+    // 4. Delete an entry
+    const deleteResult = deleteModelPatchEntry("nvidia", "model-b-renamed", tmpPatchFile);
+    assert.equal(deleteResult.ok, true);
+
+    content = fs.readFileSync(tmpPatchFile, "utf-8");
+    assert.ok(!content.includes('"model-b-renamed"'));
+    assert.ok(content.includes('"model-a"'));
+    assert.ok(content.includes("// Header comment"));
   });
 });
