@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Button, Card, Input, Badge } from "@/shared/components";
+import { useModelPatchesI18n } from "./i18n";
 
 interface MatchedRule {
   provider: string;
@@ -39,6 +40,7 @@ export default function ModelPatchInspector({
   initialProvider = "nvidia",
   onSelectForEdit,
 }: ModelPatchInspectorProps) {
+  const i18n = useModelPatchesI18n();
   const [modelInput, setModelInput] = useState(initialModelId);
   const [providerInput, setProviderInput] = useState(initialProvider);
   const [loading, setLoading] = useState(false);
@@ -123,19 +125,16 @@ export default function ModelPatchInspector({
               <span className="material-symbols-outlined text-primary text-[20px]">
                 troubleshoot
               </span>
-              Live Model Metadata Inspector
+              {i18n.inspectorTitle}
             </h2>
-            <p className="mt-1 text-xs text-text-muted">
-              Test any model ID to preview how local JSONC patches resolve capabilities, supported
-              parameters, and token limits before clients query <code>/v1/models</code>.
-            </p>
+            <p className="mt-1 text-xs text-text-muted">{i18n.inspectorDesc}</p>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
               <Input
-                label="Model ID or Qualified Path"
-                placeholder="e.g. nvidia/llama-3.1-nemotron-70b-instruct"
+                label={i18n.testModelLabel}
+                placeholder={i18n.testModelPlaceholder}
                 value={modelInput}
                 onChange={(e) => setModelInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -147,7 +146,7 @@ export default function ModelPatchInspector({
             </div>
             <div className="w-full sm:w-48">
               <Input
-                label="Provider (Optional)"
+                label={i18n.filterProvider}
                 placeholder="e.g. nvidia"
                 value={providerInput}
                 onChange={(e) => setProviderInput(e.target.value)}
@@ -164,13 +163,13 @@ export default function ModelPatchInspector({
               loading={loading}
               onClick={() => void runInspect(modelInput, providerInput)}
             >
-              Inspect
+              {loading ? i18n.btnInspecting : i18n.btnInspect}
             </Button>
           </div>
 
           {/* Quick preset chips */}
           <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border/50 text-xs">
-            <span className="text-text-muted">Quick test:</span>
+            <span className="text-text-muted">{i18n.quickTestModels}:</span>
             {QUICK_TEST_MODELS.map((item) => (
               <button
                 key={item.id}
@@ -216,7 +215,7 @@ export default function ModelPatchInspector({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-text-main">
-                        {result.matchedRule ? "Patch Rule Matched" : "No Custom Patch"}
+                        {result.matchedRule ? i18n.matchedRule : i18n.noMatchTitle}
                       </span>
                       {result.matchedRule && (
                         <Badge
@@ -224,19 +223,19 @@ export default function ModelPatchInspector({
                           size="sm"
                         >
                           {result.matchedRule.matchType === "exact"
-                            ? "Exact Match"
+                            ? i18n.matchExact
                             : result.matchedRule.matchType === "leaf"
-                              ? "Leaf Match"
+                              ? i18n.matchStripped
                               : result.matchedRule.matchType === "wildcard"
-                                ? "Wildcard Pattern"
-                                : "Provider Default"}
+                                ? i18n.matchWildcard
+                                : i18n.matchProviderDefault}
                         </Badge>
                       )}
                     </div>
                     <p className="text-xs text-text-muted mt-0.5 font-mono">
                       {result.matchedRule
-                        ? `Rule: ${result.matchedRule.provider} / "${result.matchedRule.modelPattern}"`
-                        : "Falling back to standard heuristics and upstream defaults"}
+                        ? `${i18n.matchStatus}: ${result.matchedRule.provider} / "${result.matchedRule.modelPattern}"`
+                        : i18n.noMatchDesc}
                     </p>
                   </div>
                 </div>
@@ -248,7 +247,7 @@ export default function ModelPatchInspector({
                     icon="edit"
                     onClick={() => onSelectForEdit(result.matchedRule?.modelPattern || "")}
                   >
-                    Edit Rule
+                    {i18n.subtabEditor}
                   </Button>
                 )}
               </div>
@@ -257,7 +256,7 @@ export default function ModelPatchInspector({
             {/* Resolved Metadata Breakdown */}
             <Card padding="none" className="p-4 flex flex-col gap-4">
               <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-                Effective Capabilities & Limits
+                {i18n.resolvedCapsTitle}
               </h3>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -265,14 +264,14 @@ export default function ModelPatchInspector({
                 <div className="p-3 rounded-lg border border-border bg-black/[0.02] dark:bg-white/[0.02] flex flex-col gap-1">
                   <div className="flex items-center gap-1.5 text-xs text-text-muted">
                     <span className="material-symbols-outlined text-[16px]">visibility</span>
-                    <span>Vision</span>
+                    <span>{i18n.capVision}</span>
                   </div>
                   <span
                     className={`text-sm font-semibold ${
                       caps.vision ? "text-emerald-500" : "text-text-muted"
                     }`}
                   >
-                    {caps.vision ? "Supported" : "No"}
+                    {caps.vision ? i18n.capVisionYes : i18n.capVisionNo}
                   </span>
                 </div>
 
@@ -280,14 +279,14 @@ export default function ModelPatchInspector({
                 <div className="p-3 rounded-lg border border-border bg-black/[0.02] dark:bg-white/[0.02] flex flex-col gap-1">
                   <div className="flex items-center gap-1.5 text-xs text-text-muted">
                     <span className="material-symbols-outlined text-[16px]">psychology</span>
-                    <span>Reasoning</span>
+                    <span>{i18n.capReasoning}</span>
                   </div>
                   <span
                     className={`text-sm font-semibold ${
                       caps.reasoning || caps.thinking ? "text-purple-500" : "text-text-muted"
                     }`}
                   >
-                    {caps.reasoning || caps.thinking ? "Thinking Enabled" : "Standard"}
+                    {caps.reasoning || caps.thinking ? i18n.capReasoningYes : i18n.capReasoningNo}
                   </span>
                 </div>
 
@@ -295,14 +294,14 @@ export default function ModelPatchInspector({
                 <div className="p-3 rounded-lg border border-border bg-black/[0.02] dark:bg-white/[0.02] flex flex-col gap-1">
                   <div className="flex items-center gap-1.5 text-xs text-text-muted">
                     <span className="material-symbols-outlined text-[16px]">build</span>
-                    <span>Tools</span>
+                    <span>{i18n.capTools}</span>
                   </div>
                   <span
                     className={`text-sm font-semibold ${
                       caps.tool_calling ? "text-blue-500" : "text-text-muted"
                     }`}
                   >
-                    {caps.tool_calling ? "Supported" : "No"}
+                    {caps.tool_calling ? i18n.capToolsYes : i18n.capToolsNo}
                   </span>
                 </div>
 
@@ -310,10 +309,12 @@ export default function ModelPatchInspector({
                 <div className="p-3 rounded-lg border border-border bg-black/[0.02] dark:bg-white/[0.02] flex flex-col gap-1">
                   <div className="flex items-center gap-1.5 text-xs text-text-muted">
                     <span className="material-symbols-outlined text-[16px]">format_align_left</span>
-                    <span>Context Length</span>
+                    <span>{i18n.contextWindow}</span>
                   </div>
                   <span className="text-sm font-semibold text-text-main font-mono">
-                    {contextLength ? `${contextLength.toLocaleString()} tokens` : "Unknown"}
+                    {contextLength
+                      ? `${contextLength.toLocaleString()} tokens`
+                      : i18n.noneSpecified}
                   </span>
                 </div>
 
@@ -321,10 +322,10 @@ export default function ModelPatchInspector({
                 <div className="p-3 rounded-lg border border-border bg-black/[0.02] dark:bg-white/[0.02] flex flex-col gap-1">
                   <div className="flex items-center gap-1.5 text-xs text-text-muted">
                     <span className="material-symbols-outlined text-[16px]">output</span>
-                    <span>Max Output</span>
+                    <span>{i18n.maxOutput}</span>
                   </div>
                   <span className="text-sm font-semibold text-text-main font-mono">
-                    {maxOutput ? `${maxOutput.toLocaleString()} tokens` : "Default"}
+                    {maxOutput ? `${maxOutput.toLocaleString()} tokens` : i18n.noneSpecified}
                   </span>
                 </div>
 
@@ -343,7 +344,7 @@ export default function ModelPatchInspector({
               {/* Supported Parameters */}
               <div className="flex flex-col gap-2 pt-2 border-t border-border">
                 <span className="text-xs font-medium text-text-muted">
-                  Supported Parameters ({supportedParams.length})
+                  {i18n.supportedParams} ({supportedParams.length})
                 </span>
                 {supportedParams.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
@@ -357,9 +358,7 @@ export default function ModelPatchInspector({
                     ))}
                   </div>
                 ) : (
-                  <span className="text-xs text-text-muted italic">
-                    None declared (upstream returned bare ID)
-                  </span>
+                  <span className="text-xs text-text-muted italic">{i18n.noneSpecified}</span>
                 )}
               </div>
             </Card>
@@ -373,7 +372,7 @@ export default function ModelPatchInspector({
                   data_object
                 </span>
                 <span className="text-xs font-semibold text-text-main">
-                  Simulated <code>/v1/models</code> Catalog Response
+                  {i18n.simulatedJsonTitle}
                 </span>
               </div>
               <Button
@@ -382,7 +381,7 @@ export default function ModelPatchInspector({
                 icon={copied ? "check" : "content_copy"}
                 onClick={handleCopyJson}
               >
-                {copied ? "Copied" : "Copy JSON"}
+                {copied ? i18n.btnCopied : i18n.btnCopyJson}
               </Button>
             </div>
             <pre className="p-4 text-xs font-mono text-text-main overflow-x-auto bg-black/5 dark:bg-black/30 flex-1 leading-relaxed">
