@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/error-rules-ui-3851
+      - feat/error-rules-ui-3851-v2
   workflow_dispatch:
 
 permissions:
@@ -63,7 +64,7 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           gh release create "build-${SHORT_SHA}" omniroute-*.tgz \
             --title "Build ${SHORT_SHA}" \
-            --notes "Automated build from commit ${SHORT_SHA} on branch feat/error-rules-ui-3851" \
+            --notes "Automated build from commit ${SHORT_SHA} on branch ${{ github.ref_name }}" \
             --prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
