@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Button, Card, Input, Badge } from "@/shared/components";
-import { useModelPatchesI18n } from "./i18n";
+import { useModelPatchesI18n, isChineseLocale } from "./i18n";
 
 interface MatchedRule {
   provider: string;
@@ -42,6 +42,7 @@ export default function ModelPatchInspector({
   onSelectForEdit,
 }: ModelPatchInspectorProps) {
   const i18n = useModelPatchesI18n();
+  const isZh = isChineseLocale();
   const [modelInput, setModelInput] = useState(initialModelId);
   const [providerInput, setProviderInput] = useState(initialProvider);
   const [loading, setLoading] = useState(false);
@@ -380,7 +381,7 @@ export default function ModelPatchInspector({
                     {isZh ? "/v1/models 实时返回" : "Real /v1/models"}
                   </Badge>
                 ) : (
-                  <Badge variant="outline" size="sm">
+                  <Badge variant="default" size="sm">
                     {isZh ? "未入库 (模拟预览)" : "Simulated Preview"}
                   </Badge>
                 )}
