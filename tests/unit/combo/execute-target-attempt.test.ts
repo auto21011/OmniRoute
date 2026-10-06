@@ -23,6 +23,7 @@ import {
 import {
   clearAllModelLockouts,
   getModelLockoutInfo,
+  isModelLocked,
 } from "../../../open-sse/services/accountFallback.ts";
 
 function emptyState(overrides: Partial<AttemptLoopState> = {}): AttemptLoopState {
@@ -688,4 +689,69 @@ test("priority combo treats a stale native Claude alias quota 429 as connection-
   assertUnprovenClaudeQuotaAttempt(
     await runUnprovenClaudeQuotaAttempt({ provider: "cc", stale: true })
   );
+});
+
+test("combo target timeout 504 records model lockout when 504 is in errorCodes", async () => {
+  clearAllModelLockouts();
+  const provider = "nvidia";
+  const model = "z-ai/glm-5.3";
+  const connectionId = "conn-nvidia-1";
+  const target: ResolvedComboTarget = {
+    kind: "model",
+    modelStr: `${provider}/${model}`,
+    provider,
+    providerId: null,
+    connectionId: null,
+    executionKey: "k",
+    stepId: "s",
+    weight: 1,
+    label: null,
+  };
+  const deps = baseDeps({
+    maxRetries: 0,
+    settings: {
+      modelLockout: {
+        enabled: true,
+        errorCodes: [403, 404, 429, 502, 503, 504],
+        baseCooldownMs: 120_000,
+        useExponentialBackoff: false,
+      },
+    },
+    handleSingleModelWithTimeout: async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: `Model ${provider}/${model} timed out`,
+            type: "combo_target_timeout",
+            code: "combo_target_timeout",
+          },
+        }),
+        {
+          status: 504,
+          headers: {
+            "Content-Type": "application/json",
+            "x-omniroute-selected-connection-id": connectionId,
+          },
+        }
+      );
+    },
+  });
+  const state = emptyState({
+    orderedTargets: [target],
+    abortControllers: new Map([[0, new AbortController()]]),
+  });
+
+  const { executeTargetAttempt } =
+    await import("../../../open-sse/services/combo/executeTargetAttempt.ts");
+  await executeTargetAttempt({
+    index: 0,
+    state,
+    deps,
+    targetForAttempt: target,
+    profile: {},
+    protectedPriorityTarget: false,
+  });
+
+  assert.equal(isModelLocked(provider, connectionId, model), true);
+  assert.equal(isModelLocked(provider, "", model), true);
 });

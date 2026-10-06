@@ -45,11 +45,19 @@ export function createGetModelLockKeys(
   getCanonicalLockProvider: (provider: string) => string
 ) {
   return function getModelLockKeys(provider: string, connectionId: string, model: string) {
-    return collectModelLockKeys(
+    const keys = [
       getModelLockKey(provider, connectionId, model),
       getModelLockKey(provider, connectionId, model, "not_found", 404),
-      buildExactModelLockKey(getCanonicalLockProvider(provider), connectionId, model)
-    );
+      buildExactModelLockKey(getCanonicalLockProvider(provider), connectionId, model),
+    ];
+    if (connectionId) {
+      keys.push(
+        getModelLockKey(provider, "", model),
+        getModelLockKey(provider, "", model, "not_found", 404),
+        buildExactModelLockKey(getCanonicalLockProvider(provider), "", model)
+      );
+    }
+    return Array.from(new Set(keys));
   };
 }
 

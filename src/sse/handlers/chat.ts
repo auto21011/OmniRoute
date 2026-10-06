@@ -1176,6 +1176,7 @@ async function handleChatImplementation(
           effectiveComboStrategy?: string | null;
           modelAbortSignal?: AbortSignal | null;
           fallbackAttempts?: number;
+          onConnectionSelected?: (connId: string) => void;
         }
       ) =>
         handleSingleModelChat(
@@ -1224,6 +1225,7 @@ async function handleChatImplementation(
             // log id 1784418258231-14961a.
             modelAbortSignal: target?.modelAbortSignal ?? null,
             fallbackAttempts: target?.fallbackAttempts,
+            onConnectionSelected: target?.onConnectionSelected,
           },
           target?.effectiveComboStrategy ?? combo.strategy,
           true
@@ -1449,6 +1451,7 @@ async function handleSingleModelChat(
      */
     modelAbortSignal?: AbortSignal | null;
     fallbackAttempts?: number;
+    onConnectionSelected?: (connId: string) => void;
   } = {},
   comboStrategy: string | null = null,
   isCombo: boolean = false
@@ -1524,6 +1527,7 @@ async function handleSingleModelChat(
             // #7360 follow-up — see the primary handleSingleModel closure above.
             modelAbortSignal: target?.modelAbortSignal ?? null,
             fallbackAttempts: target?.fallbackAttempts,
+            onConnectionSelected: target?.onConnectionSelected,
           },
           resolvedTarget?.effectiveComboStrategy ?? redirectCombo.strategy ?? "priority",
           false
@@ -1855,6 +1859,11 @@ async function handleSingleModelChat(
       }
 
       const accountId = credentials.connectionId.slice(0, 8);
+      if (typeof runtimeOptions?.onConnectionSelected === "function") {
+        try {
+          runtimeOptions.onConnectionSelected(credentials.connectionId);
+        } catch {}
+      }
       const releaseOAuthSession = credentials.releaseOAuthSession ?? (() => {});
       // Undefined whenever the lease flag is off, which makes every release/hold below a no-op.
       const leaseId: string | undefined = credentials.routing?.leaseId;

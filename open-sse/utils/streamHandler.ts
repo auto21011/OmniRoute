@@ -6,6 +6,7 @@ import { PENDING_REQUEST_CLEARED_MARKER } from "./stream.ts";
 import { createCompletedResponsesToolHandoffWatcher } from "./responsesToolHandoff.ts";
 import { createStreamContentWatcher, type StreamContentWatcher } from "./streamReadiness.ts";
 import { hasOpenReasoning } from "./emptyTurnRetry.ts";
+import { COMBO_PER_MODEL_TIMEOUT_REASON } from "../services/combo/comboAbortReasons.ts";
 
 // Stream handler with disconnect detection - shared for all providers
 
@@ -159,8 +160,26 @@ function isPendingRequestClearedError(error: unknown): boolean {
  * failover/cooldown (the Codex / Antigravity executors already
  * guard client aborts the same way).
  */
+export function isDeadlineAbortReason(reason: unknown): boolean {
+  if (typeof reason === "string") {
+    return reason === COMBO_PER_MODEL_TIMEOUT_REASON;
+  }
+  if (reason && typeof reason === "object") {
+    const err = reason as { name?: unknown; message?: unknown };
+    return (
+      err.name === "TimeoutError" ||
+      err.name === "BodyTimeoutError" ||
+      err.message === COMBO_PER_MODEL_TIMEOUT_REASON
+    );
+  }
+  return false;
+}
+
 export function isClientDisconnectError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
+  if (isDeadlineAbortReason(error)) return false;
+  const cause = (error as { cause?: unknown }).cause;
+  if (isDeadlineAbortReason(cause)) return false;
   const name = (error as { name?: unknown }).name;
   if (name === "AbortError" || name === "ResponseAborted") return true;
   const message = (error as { message?: unknown }).message;
@@ -174,6 +193,14 @@ function getErrorMessage(error: unknown): string {
 }
 
 function getErrorStatusCode(error: unknown): number {
+  if (isDeadlineAbortReason(error)) {
+    return 504;
+  }
+  const cause =
+    error && typeof error === "object" ? (error as { cause?: unknown }).cause : undefined;
+  if (isDeadlineAbortReason(cause)) {
+    return 504;
+  }
   const errorName =
     error && typeof error === "object" && typeof (error as { name?: unknown }).name === "string"
       ? (error as { name: string }).name
@@ -192,13 +219,6 @@ function getErrorStatusCode(error: unknown): number {
 
 function getPublicErrorMessage(errorMsg: string, statusCode: number): string {
   return buildErrorBody(statusCode, errorMsg).error.message;
-}
-
-function isDeadlineAbortReason(reason: unknown): reason is Error {
-  return (
-    reason instanceof Error &&
-    (reason.name === "TimeoutError" || reason.name === "BodyTimeoutError")
-  );
 }
 
 function hasClientTerminalSseMarker(text: string, clientResponseFormat?: string | null): boolean {

@@ -22,8 +22,10 @@ import { parseNonStreamingResponseBody, isJsonRecord } from "./nonStreamingRespo
 import { restoreNonStreamingToolNames } from "./passthroughToolNames.ts";
 import { extractUsageFromResponse } from "../usageExtractor.ts";
 import { sanitizeUsagePayloadForRequest } from "../../utils/usageTracking.ts";
-import { createErrorResult, formatProviderError } from "../../utils/error.ts";
+import { createErrorResult, formatProviderError, sanitizeErrorMessage } from "../../utils/error.ts";
 import { isLocalStreamLifecycleError } from "@/shared/utils/circuitBreaker";
+import { isDeadlineAbortReason } from "../../utils/streamHandler.ts";
+import { COMBO_PER_MODEL_TIMEOUT_REASON } from "../../services/combo/comboAbortReasons.ts";
 import { unwrapClinepassEnvelope } from "../../utils/clinepassEnvelope.ts";
 import { unwrapClineNonStreamingEnvelope } from "./clineResponseEnvelope.ts";
 import {
@@ -485,20 +487,34 @@ export async function runNonStreamingProviderLeg(
     // `error.name === "AbortError"` is too narrow — that shape fell through to the 502
     // provider-failure default (#7907). chatCore classified this through
     // isLocalStreamLifecycleError before this leg took over the first send; mirror it.
-    const isRequestAborted = isLocalStreamLifecycleError(error);
-    const failureStatus = isRequestAborted
-      ? 499
-      : error instanceof Error && error.name === "TimeoutError"
-        ? 504
-        : 502;
+    const isDeadlineTimeout =
+      isDeadlineAbortReason(error) ||
+      (Boolean(error) &&
+        typeof error === "object" &&
+        isDeadlineAbortReason((error as { cause?: unknown }).cause)) ||
+      (error instanceof Error &&
+        (error.name === "TimeoutError" ||
+          error.name === "BodyTimeoutError" ||
+          error.message === COMBO_PER_MODEL_TIMEOUT_REASON));
+    const isRequestAborted = !isDeadlineTimeout && isLocalStreamLifecycleError(error);
+    const failureStatus = isDeadlineTimeout
+      ? 504
+      : isRequestAborted
+        ? 499
+        : error instanceof Error && error.name === "TimeoutError"
+          ? 504
+          : 502;
     // A client abort is not a provider failure: formatProviderError would stamp the raw
     // upstream text as `[499]: <reason>`, leaking it to the client. chatCore has always
     // normalized this to the fixed "Request aborted".
     const failureMessage = isRequestAborted
       ? "Request aborted"
-      : error instanceof Error
-        ? formatProviderError(error, provider, currentModel, failureStatus)
-        : "Provider request failed";
+      : isDeadlineTimeout
+        ? sanitizeErrorMessage(error instanceof Error ? error.message : "") ||
+          `Model ${currentModel} timed out`
+        : error instanceof Error
+          ? formatProviderError(error, provider, currentModel, failureStatus)
+          : "Provider request failed";
     const receipt = buildReceipt(input, {
       httpStatus: failureStatus,
       errorType: null,

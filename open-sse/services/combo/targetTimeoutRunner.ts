@@ -129,10 +129,15 @@ export function buildTargetTimeoutRunner(deps: {
     const timeoutController = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
+    let selectedConnectionId: string | undefined =
+      target && "connectionId" in target && typeof target.connectionId === "string"
+        ? target.connectionId
+        : undefined;
     const timeoutPromise = new Promise<Response>((resolve) => {
       timeoutId = setTimeout(() => {
         timedOut = true;
         const abortErr = new Error(COMBO_PER_MODEL_TIMEOUT_REASON);
+        abortErr.name = "TimeoutError";
         recordTimeoutContext({
           modelStr,
           timeoutMs: effectiveTimeoutMs,
@@ -148,6 +153,15 @@ export function buildTargetTimeoutRunner(deps: {
         // Typed as combo_target_timeout so request-scoped classification can keep the
         // connection eligible for fallback instead of treating it like Cloudflare 524
         // or a genuine upstream gateway timeout.
+        const connId =
+          selectedConnectionId ||
+          (target && "connectionId" in target && typeof target.connectionId === "string"
+            ? target.connectionId
+            : undefined);
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (connId) {
+          headers["X-OmniRoute-Selected-Connection-Id"] = connId;
+        }
         resolve(
           new Response(
             JSON.stringify(
@@ -158,15 +172,23 @@ export function buildTargetTimeoutRunner(deps: {
             ),
             {
               status: 504,
-              headers: { "Content-Type": "application/json" },
+              headers,
             }
           )
         );
       }, effectiveTimeoutMs);
     });
-    const targetWithSignal = {
+    const targetWithSignal: SingleModelTarget = {
       ...(target ?? {}),
       modelAbortSignal: timeoutController.signal,
+      onConnectionSelected: (connId: string) => {
+        selectedConnectionId = connId;
+        if (typeof target?.onConnectionSelected === "function") {
+          try {
+            target.onConnectionSelected(connId);
+          } catch {}
+        }
+      },
     };
     const parentHedgeSignal = target?.modelAbortSignal ?? null;
     let onParentHedgeAbort: (() => void) | null = null;
@@ -203,7 +225,10 @@ export function buildTargetTimeoutRunner(deps: {
         // Defensive: should never fire — both race branches always resolve.
         // Include the error message so the root cause is not masked.
         const detail = raceErr instanceof Error ? raceErr.message : String(raceErr);
-        log.error?.("COMBO", `Unexpected rejection in combo timeout race for ${modelStr}: ${detail}`);
+        log.error?.(
+          "COMBO",
+          `Unexpected rejection in combo timeout race for ${modelStr}: ${detail}`
+        );
         return errorResponse(502, `Combo timeout dispatch error: ${detail}`);
       });
     } finally {

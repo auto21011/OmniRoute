@@ -1024,6 +1024,7 @@ export function shouldMarkAccountExhaustedFrom429(
 export function classifyLockoutReason(status: number): string {
   if (status === 429) return "rate_limit";
   if (status === 403) return "quota_exhausted";
+  if (status === 504) return "timeout";
   return "unknown";
 }
 
@@ -1061,6 +1062,24 @@ export function isModelLocked(
   model: string | null | undefined
 ): boolean {
   if (!model) return false;
+  if (!connectionId) {
+    const canonical = getCanonicalLockProvider(provider);
+    const normalizedModel = model.trim().toLowerCase();
+    const exactSuffix = `:exact:${normalizedModel}`;
+    const now = Date.now();
+    for (const [key, entry] of modelLockouts.entries()) {
+      if (entry.until <= now) {
+        cleanupModelLockKey(key);
+        continue;
+      }
+      if (
+        key.startsWith(`${canonical}:`) &&
+        (key.endsWith(exactSuffix) || key.endsWith(`:${normalizedModel}`))
+      ) {
+        return true;
+      }
+    }
+  }
   return exactModelLock.isAnyKeyLocked(
     modelLockouts,
     cleanupModelLockKey,

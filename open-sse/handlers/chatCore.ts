@@ -163,8 +163,12 @@ import { requestTtftMs } from "../utils/streamTiming.ts";
 import { resolveSuppressThinkClose, THINKING_MARKER_HEADER } from "../utils/thinkCloseMarker.ts";
 import { resolveStreamReadinessTimeout } from "../utils/streamReadinessPolicy.ts";
 import { resolveAgentGoalPolicy } from "../utils/agentGoalPolicy.ts";
-import { hasActiveClaudeThinking } from "../utils/thinkingBudget.ts";
-import { createStreamController } from "../utils/streamHandler.ts";
+import { createStreamController, isDeadlineAbortReason } from "../utils/streamHandler.ts";
+import {
+  isComboPerModelTimeoutAbort,
+  COMBO_TARGET_TIMEOUT_CODE,
+  COMBO_PER_MODEL_TIMEOUT_REASON,
+} from "../services/combo/comboAbortReasons.ts";
 import * as streamFailure from "../utils/streamFailureFinalization.ts";
 import { normalizeUsage } from "../utils/usageTracking.ts";
 import {
@@ -4336,8 +4340,20 @@ async function handleChatCoreInner({
       // abort(reason) can reject with a raw string lacking `name`/`status`; classify
       // it through isLocalStreamLifecycleError so it maps to 499 rather than the
       // 502 provider-failure default.
-      let isRequestAborted = errorMetadata.name === "AbortError";
-      if (!isRequestAborted) {
+      const isTargetTimeoutAbort =
+        isComboPerModelTimeoutAbort(clientRawRequest?.signal) ||
+        (Boolean(clientRawRequest?.signal?.reason) &&
+          isDeadlineAbortReason(clientRawRequest?.signal?.reason)) ||
+        isDeadlineAbortReason(error) ||
+        (Boolean(error) &&
+          typeof error === "object" &&
+          isDeadlineAbortReason((error as { cause?: unknown }).cause)) ||
+        (Boolean(error) &&
+          typeof error === "object" &&
+          (error as { message?: unknown }).message === COMBO_PER_MODEL_TIMEOUT_REASON);
+
+      let isRequestAborted = !isTargetTimeoutAbort && errorMetadata.name === "AbortError";
+      if (!isRequestAborted && !isTargetTimeoutAbort) {
         try {
           isRequestAborted = isLocalStreamLifecycleError(error);
         } catch {
@@ -4348,45 +4364,54 @@ async function handleChatCoreInner({
       // distinguishable from ordinary provider 5xx responses.
       const isProxyUnreachableFailure =
         !isRequestAborted && errorMetadata.errorCode === "proxy_unreachable";
-      const errorCode = errorMetadata.code;
+      const errorCode = isTargetTimeoutAbort ? COMBO_TARGET_TIMEOUT_CODE : errorMetadata.code;
       const localRateLimitFailure = localLimiterErrors.getClientSafeLocalRateLimitError(error);
-      const failureStatus = isRequestAborted
-        ? 499
-        : isProxyUnreachableFailure
-          ? HTTP_STATUS.BAD_GATEWAY
-          : localRateLimitFailure
-            ? localRateLimitFailure.status
-            : errorMetadata.name === "TimeoutError" || errorMetadata.name === "BodyTimeoutError"
-              ? HTTP_STATUS.GATEWAY_TIMEOUT
-              : errorMetadata.status
-                ? errorMetadata.status
-                : HTTP_STATUS.BAD_GATEWAY;
+      const failureStatus = isTargetTimeoutAbort
+        ? HTTP_STATUS.GATEWAY_TIMEOUT
+        : isRequestAborted
+          ? 499
+          : isProxyUnreachableFailure
+            ? HTTP_STATUS.BAD_GATEWAY
+            : localRateLimitFailure
+              ? localRateLimitFailure.status
+              : errorMetadata.name === "TimeoutError" || errorMetadata.name === "BodyTimeoutError"
+                ? HTTP_STATUS.GATEWAY_TIMEOUT
+                : errorMetadata.status
+                  ? errorMetadata.status
+                  : HTTP_STATUS.BAD_GATEWAY;
       const failureMessage = isRequestAborted
         ? "Request aborted"
-        : (() => {
-            try {
-              return formatProviderError(
-                localRateLimitFailure ?? error,
-                provider,
-                model,
-                failureStatus
-              );
-            } catch {
-              // Formatting is diagnostic only; hostile rejection metadata falls back safely.
-              return errorMetadata.message || "Upstream provider error";
-            }
-          })();
+        : isTargetTimeoutAbort
+          ? sanitizeErrorMessage(errorMetadata.message) || `Model ${model} timed out`
+          : (() => {
+              try {
+                return formatProviderError(
+                  localRateLimitFailure ?? error,
+                  provider,
+                  model,
+                  failureStatus
+                );
+              } catch {
+                // Formatting is diagnostic only; hostile rejection metadata falls back safely.
+                return errorMetadata.message || "Upstream provider error";
+              }
+            })();
       const safeFailureMessage = sanitizeErrorMessage(failureMessage) || "Upstream provider error";
       const upstreamErrorCode =
         localRateLimitFailure?.code ??
-        (isProxyUnreachableFailure ? "proxy_unreachable" : errorCode);
+        (isTargetTimeoutAbort
+          ? COMBO_TARGET_TIMEOUT_CODE
+          : isProxyUnreachableFailure
+            ? "proxy_unreachable"
+            : errorCode);
       // Tag our own deadline timeouts (fetch-start TimeoutError / body BodyTimeoutError,
       // both surfaced as a 504) as "upstream_timeout" so the cooldown layer can tell a
       // slow-but-not-failed request apart from a real provider 5xx. (Antigravity already
       // tags its pre-response timeout via the code below.)
       const isOwnDeadlineTimeout =
-        failureStatus === HTTP_STATUS.GATEWAY_TIMEOUT &&
-        (errorMetadata.name === "TimeoutError" || errorMetadata.name === "BodyTimeoutError");
+        isTargetTimeoutAbort ||
+        (failureStatus === HTTP_STATUS.GATEWAY_TIMEOUT &&
+          (errorMetadata.name === "TimeoutError" || errorMetadata.name === "BodyTimeoutError"));
       const upstreamErrorType =
         upstreamErrorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE || isOwnDeadlineTimeout
           ? "upstream_timeout"
@@ -4409,7 +4434,7 @@ async function handleChatCoreInner({
         // dashboard reads that field as "what the client received"), so omit it
         // for this case; `error` above already records the failure reason.
         clientResponse:
-          errorMetadata.name === "AbortError"
+          errorMetadata.name === "AbortError" && !isTargetTimeoutAbort
             ? undefined
             : buildErrorBody(failureStatus, failureMessage),
         claudeCacheMeta: claudePromptCacheLogMeta,

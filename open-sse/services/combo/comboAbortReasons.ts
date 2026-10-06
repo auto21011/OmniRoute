@@ -15,6 +15,9 @@
 /** Abort reason used when a combo target exceeds `comboTargetTimeoutMs`. */
 export const COMBO_PER_MODEL_TIMEOUT_REASON = "combo-per-model-timeout";
 
+/** Error code and type used when a combo target times out. */
+export const COMBO_TARGET_TIMEOUT_CODE = "combo_target_timeout";
+
 /** Abort reason used when a hedged sibling target won the race. */
 export const COMBO_HEDGE_CANCELLED_REASON = "hedge-cancelled";
 

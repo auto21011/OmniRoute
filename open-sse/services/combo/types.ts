@@ -66,8 +66,14 @@ export type SingleModelTarget =
       modelPinned?: boolean;
       /** Prior combo legs already attempted before this dispatch (#12339). */
       fallbackAttempts?: number;
+      onConnectionSelected?: (connectionId: string) => void;
     })
-  | { modelAbortSignal: AbortSignal; fallbackAttempts?: number };
+  | {
+      connectionId?: string | null;
+      modelAbortSignal: AbortSignal;
+      fallbackAttempts?: number;
+      onConnectionSelected?: (connectionId: string) => void;
+    };
 
 export type HandleSingleModel = (
   body: Record<string, unknown>,

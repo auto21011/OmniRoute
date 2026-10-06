@@ -71,6 +71,7 @@ import {
   requestScopedReplayKey,
 } from "./comboPredicates.ts";
 import { applyComboTargetExhaustion } from "./targetExhaustion.ts";
+import { COMBO_TARGET_TIMEOUT_CODE } from "./comboAbortReasons.ts";
 import { advanceNativeCodexTurnGeneration, pinNativeCodexTurn } from "./nativeCodexTurnPin.ts";
 import { recordComboDecision } from "./decisionTrace.ts";
 import { recordProviderCooldown } from "../providerCooldownTracker.ts";
@@ -752,7 +753,10 @@ export async function executeTargetAttempt(opts: {
 
     // Fix #1681: Status 499 means client disconnected — stop combo loop immediately.
     // There is no point trying fallback models when nobody is listening.
-    if (result.status === 499) {
+    // Only stop the combo loop if the caller's request signal was genuinely aborted
+    // (or no signal is available). If the client is still connected, an upstream 499
+    // should not abort the combo.
+    if (result.status === 499 && (deps.signal?.aborted || !deps.signal)) {
       deps.log.info("COMBO", `Client disconnected (499) during ${modelStr} — stopping combo loop`);
       recordComboRequest(deps.combo.name, modelStr, {
         success: false,
@@ -808,6 +812,11 @@ export async function executeTargetAttempt(opts: {
           }
         : undefined;
     const scopedFailure = isScopedFailure(result, errorText, structuredError);
+    const isTargetTimeout =
+      result.status === 504 &&
+      (structuredError?.code === COMBO_TARGET_TIMEOUT_CODE ||
+        structuredError?.type === COMBO_TARGET_TIMEOUT_CODE ||
+        /timed out/i.test(errorText));
 
     // #8375: input-bound request-scoped failures (context_length_exceeded) are
     // deterministic for the same input — retrying on other accounts of the same
@@ -1076,14 +1085,15 @@ export async function executeTargetAttempt(opts: {
         provider &&
         rawModel &&
         retry === 0 &&
-        !scopedFailure &&
+        (!scopedFailure || isTargetTimeout) &&
         !isConnectionScopedClaudeQuota
       ) {
         const mlSettings = resolveModelLockoutSettings(deps.settings);
         if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
+          const targetConnId = targetWithConnection.connectionId || "";
           recordModelLockoutFailure(
             provider,
-            targetWithConnection.connectionId || "",
+            targetConnId,
             rawModel,
             classifyLockoutReason(result.status),
             result.status,
@@ -1101,6 +1111,23 @@ export async function executeTargetAttempt(opts: {
               exactCooldownIsUpstreamReset: lockoutHintVerified,
             }
           );
+          if (targetConnId && !target.connectionId) {
+            recordModelLockoutFailure(
+              provider,
+              "",
+              rawModel,
+              classifyLockoutReason(result.status),
+              result.status,
+              mlSettings.baseCooldownMs,
+              profile,
+              {
+                exactCooldownMs:
+                  modelScopedClaudeCooldownMs ?? selectLockoutCooldownMs(lockoutHintMs, mlSettings),
+                maxCooldownMs: mlSettings.maxCooldownMs,
+                exactCooldownIsUpstreamReset: lockoutHintVerified,
+              }
+            );
+          }
           lockoutRecorded = true;
         }
       }
@@ -1165,12 +1192,18 @@ export async function executeTargetAttempt(opts: {
     if (i > 0) state.fallbackCount++;
     // Wire combo failures into the resilience dashboard (model-level lockout)
     // alongside the provider-level cooldown below — they govern different scopes.
-    if (provider && rawModel && !scopedFailure && !isConnectionScopedClaudeQuota) {
+    if (
+      provider &&
+      rawModel &&
+      (!scopedFailure || isTargetTimeout) &&
+      !isConnectionScopedClaudeQuota
+    ) {
       const mlSettings = resolveModelLockoutSettings(deps.settings);
       if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
+        const targetConnId = targetWithConnection.connectionId || "";
         recordModelLockoutFailure(
           provider,
-          targetWithConnection.connectionId || "",
+          targetConnId,
           rawModel,
           classifyLockoutReason(result.status),
           result.status,
@@ -1187,6 +1220,23 @@ export async function executeTargetAttempt(opts: {
             exactCooldownIsUpstreamReset: lockoutHintVerified,
           }
         );
+        if (targetConnId && !target.connectionId) {
+          recordModelLockoutFailure(
+            provider,
+            "",
+            rawModel,
+            classifyLockoutReason(result.status),
+            result.status,
+            mlSettings.baseCooldownMs,
+            profile,
+            {
+              exactCooldownMs:
+                modelScopedClaudeCooldownMs ?? selectLockoutCooldownMs(lockoutHintMs, mlSettings),
+              maxCooldownMs: mlSettings.maxCooldownMs,
+              exactCooldownIsUpstreamReset: lockoutHintVerified,
+            }
+          );
+        }
       }
     }
     deps.log.warn("COMBO", `Model ${modelStr} failed, trying next`, {
