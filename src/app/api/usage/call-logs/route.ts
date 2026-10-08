@@ -139,8 +139,12 @@ export function buildCallLogListRows({
   const persistedCorrelationIds = new Set(
     logs.map((log: any) => log.correlationId || log.correlation_id).filter(Boolean)
   );
+  const completedIds = new Set(completedDetails.map((detail: any) => detail.id).filter(Boolean));
 
   for (const detail of pendingDetails) {
+    if (persistedIds.has(detail.id) || completedIds.has(detail.id)) {
+      continue;
+    }
     activeEntries.push({
       id: detail.id,
       timestamp: new Date(detail.startedAt).toISOString(),

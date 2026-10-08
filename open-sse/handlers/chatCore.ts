@@ -2420,7 +2420,7 @@ async function handleChatCoreInner({
     onDisconnect,
     provider,
     model,
-    connectionId,
+    connectionId: pendingConnId,
     pendingRequestId,
     clientResponseFormat,
     clientAbortSignal: clientRawRequest?.signal,

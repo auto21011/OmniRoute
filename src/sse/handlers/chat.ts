@@ -1448,6 +1448,10 @@ async function handleChatImplementation(
           requestBody: clientRawRequest?.body ?? null,
         });
       } catch {}
+      try {
+        const { removePendingByCorrelationId } = await import("@/lib/usageDb");
+        removePendingByCorrelationId(reqId);
+      } catch {}
     }
     return withModalityBridgeHeader(
       withConversationId(

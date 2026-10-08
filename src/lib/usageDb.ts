@@ -23,6 +23,8 @@ export {
   updatePendingRequest,
   updatePendingRequestStreamChunks,
   finalizePendingRequest,
+  finalizePendingRequestById,
+  removePendingByCorrelationId,
   getUsageDb,
   saveRequestUsage,
   getUsageHistory,
