@@ -132,6 +132,14 @@ export function buildCallLogListRows({
     return providerDisplayNames.get(providerId) || null;
   };
 
+  // Both in-memory sources arrive as one-shot iterators in production
+  // (`getPendingById().values()` / `getCompletedDetails().values()`), so they
+  // are materialized once up front. Iterating them a second time silently
+  // yields nothing — previously the completed pass drained the iterator while
+  // building a dedup set, so recently-completed in-memory rows never rendered.
+  const pendingList: any[] = [...pendingDetails];
+  const completedList: any[] = [...completedDetails];
+
   // Include active (in-flight) requests from the pending-by-id map
   // so they appear in the logs grid alongside persisted entries.
   const activeEntries: any[] = [];
@@ -139,12 +147,14 @@ export function buildCallLogListRows({
   const persistedCorrelationIds = new Set(
     logs.map((log: any) => log.correlationId || log.correlation_id).filter(Boolean)
   );
-  const completedIds = new Set(completedDetails.map((detail: any) => detail.id).filter(Boolean));
 
-  for (const detail of pendingDetails) {
-    if (persistedIds.has(detail.id) || completedIds.has(detail.id)) {
-      continue;
-    }
+  for (const detail of pendingList) {
+    // An in-flight entry always wins. Combo fallback reuses one pending id
+    // across attempts (usageHistory's pendingIdByCorrelation), so the same id
+    // can be both in-flight (the new attempt) and recently-completed (an
+    // earlier attempt). Suppressing the live row when its id also appears in
+    // the persisted/completed sets hid actively streaming requests; the stale
+    // completed twin is dropped by the `pendingIds` check in the loop below.
     activeEntries.push({
       id: detail.id,
       timestamp: new Date(detail.startedAt).toISOString(),
@@ -184,7 +194,7 @@ export function buildCallLogListRows({
   const pendingIds = new Set(activeEntries.map((entry) => entry.id));
   const completedEntries: any[] = [];
   const seenCompletedCorrelationIds = new Set<string>();
-  for (const detail of completedDetails) {
+  for (const detail of completedList) {
     if (
       persistedIds.has(detail.id) ||
       pendingIds.has(detail.id) ||

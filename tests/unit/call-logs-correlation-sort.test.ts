@@ -191,3 +191,93 @@ test("buildCallLogListRows: dedupes completed in-memory entries when persisted l
   assert.equal(rows[0].id, "persisted-uuid-2");
   assert.equal(rows[0].completed, undefined);
 });
+
+// Regression: commit 14e496be44 skipped any pending entry whose id also existed
+// in the completed set. Combo fallback reuses ONE pending id across attempts
+// (usageHistory's pendingIdByCorrelation), so an earlier, already-finalized
+// attempt put the id in completedDetails while a NEW attempt was still
+// streaming under that same id — the live row then vanished and the logs page
+// showed no in-flight request even though the model was actively responding.
+test("buildCallLogListRows: an in-flight retry that reused a finalized attempt id stays visible", () => {
+  const now = 5_000_000;
+  const rows = buildCallLogListRows({
+    logs: [
+      {
+        id: "persisted-uuid-attempt1",
+        correlationId: "corr-combo",
+        timestamp: new Date(now - 1_000).toISOString(),
+      },
+    ],
+    connections: [],
+    pendingDetails: [
+      {
+        id: "1790000000000-abc123",
+        startedAt: now - 200,
+        provider: "qoder",
+        model: "qwen3.8-flash",
+        connectionId: "conn-2",
+        correlationId: "corr-combo",
+      },
+    ],
+    completedDetails: [
+      {
+        id: "1790000000000-abc123",
+        startedAt: now - 2_000,
+        completedAt: now - 1_500,
+        provider: "sensenova",
+        model: "glm-5.2",
+        connectionId: null,
+        correlationId: "corr-combo",
+      },
+    ],
+    now,
+  });
+
+  const active = (
+    rows as Array<{ id?: string; active?: boolean; completed?: boolean; model?: string }>
+  ).find((r) => r.id === "1790000000000-abc123");
+  assert.ok(active, "the reused id must still appear");
+  assert.equal(active.active, true, "the newer attempt must render as the active row");
+  assert.equal(active.model, "qwen3.8-flash");
+  assert.equal(active.completed, undefined);
+  // Exactly one row for the id — the stale completed twin is dropped.
+  assert.equal(
+    (rows as Array<{ id?: string }>).filter((r) => r.id === "1790000000000-abc123").length,
+    1
+  );
+});
+
+// Regression: the route passes `getCompletedDetails().values()` — a one-shot
+// iterator. Building the dedup set with `.map()` consumed it, so the later
+// for-of over the same iterator yielded nothing and recently-completed
+// in-memory rows never rendered. Materializing once fixes the pass.
+test("buildCallLogListRows: completed in-memory entries render from a one-shot iterator", () => {
+  const now = 6_000_000;
+  const rows = buildCallLogListRows({
+    logs: [],
+    connections: [],
+    pendingDetails: new Map().values(),
+    completedDetails: new Map([
+      [
+        "1790000000000-done1",
+        {
+          id: "1790000000000-done1",
+          startedAt: now - 900,
+          completedAt: now - 800,
+          provider: "openai",
+          model: "gpt-4o",
+          connectionId: "conn-9",
+          correlationId: "corr-done",
+        },
+      ],
+    ]).values(),
+    now,
+  });
+
+  const completed = (rows as Array<{ id?: string; active?: boolean; completed?: boolean }>).find(
+    (r) => r.id === "1790000000000-done1"
+  );
+  assert.ok(completed, "completed in-memory entry must render despite the one-shot iterator");
+  assert.equal(completed.completed, true);
+  assert.equal(completed.active, false);
+});
