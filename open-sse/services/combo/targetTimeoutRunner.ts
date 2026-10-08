@@ -196,15 +196,36 @@ export function buildTargetTimeoutRunner(deps: {
             // the loser branch resolves cleanly without leaking err.message.
             return new Response(null, { status: 599 });
           }
-          return errorResponse(502, err?.message ?? "Upstream model error");
+          const resp = errorResponse(502, err?.message ?? "Upstream model error");
+          const connId =
+            selectedConnectionId ||
+            (target && "connectionId" in target && typeof target.connectionId === "string"
+              ? target.connectionId
+              : undefined);
+          if (connId) {
+            resp.headers.set("X-OmniRoute-Selected-Connection-Id", connId);
+          }
+          return resp;
         }),
         timeoutPromise,
       ]).catch((raceErr) => {
         // Defensive: should never fire — both race branches always resolve.
         // Include the error message so the root cause is not masked.
         const detail = raceErr instanceof Error ? raceErr.message : String(raceErr);
-        log.error?.("COMBO", `Unexpected rejection in combo timeout race for ${modelStr}: ${detail}`);
-        return errorResponse(502, `Combo timeout dispatch error: ${detail}`);
+        log.error?.(
+          "COMBO",
+          `Unexpected rejection in combo timeout race for ${modelStr}: ${detail}`
+        );
+        const resp = errorResponse(502, `Combo timeout dispatch error: ${detail}`);
+        const connId =
+          selectedConnectionId ||
+          (target && "connectionId" in target && typeof target.connectionId === "string"
+            ? target.connectionId
+            : undefined);
+        if (connId) {
+          resp.headers.set("X-OmniRoute-Selected-Connection-Id", connId);
+        }
+        return resp;
       });
     } finally {
       clearTimeout(timeoutId);
