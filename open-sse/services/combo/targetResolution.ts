@@ -184,11 +184,12 @@ async function describeWeightedExclusion(
   if (
     target.provider &&
     rawModel &&
-    isModelLocked(target.provider, target.connectionId || "", rawModel)
+    target.connectionId &&
+    isModelLocked(target.provider, target.connectionId, rawModel)
   ) {
     return exclude(
       "model_lockout",
-      getModelLockoutInfo(target.provider, target.connectionId || "", rawModel)?.remainingMs ?? null
+      getModelLockoutInfo(target.provider, target.connectionId, rawModel)?.remainingMs ?? null
     );
   }
   if (target.provider && rawModel && target.connectionId) {

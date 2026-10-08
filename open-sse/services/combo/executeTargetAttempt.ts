@@ -360,11 +360,25 @@ export async function executeTargetAttempt(opts: {
         decision: "dispatched",
       });
     }
+    let attemptSelectedConnectionId: string | undefined;
     const result = await deps.handleSingleModelWithTimeout(attemptBody, modelStr, {
       ...targetForAttempt,
       effectiveComboStrategy: deps.strategy,
       failoverBeforeRetry: deps.config.failoverBeforeRetry,
+      onConnectionSelected: (connId: string) => {
+        attemptSelectedConnectionId = connId;
+      },
     });
+
+    if (
+      attemptSelectedConnectionId &&
+      !result.headers?.get("X-OmniRoute-Selected-Connection-Id") &&
+      !result.headers?.get("x-omniroute-selected-connection-id")
+    ) {
+      try {
+        result.headers.set("X-OmniRoute-Selected-Connection-Id", attemptSelectedConnectionId);
+      } catch {}
+    }
 
     // Success — validate response quality before returning
     if (result.ok) {
@@ -1111,23 +1125,6 @@ export async function executeTargetAttempt(opts: {
               exactCooldownIsUpstreamReset: lockoutHintVerified,
             }
           );
-          if (targetConnId && !target.connectionId) {
-            recordModelLockoutFailure(
-              provider,
-              "",
-              rawModel,
-              classifyLockoutReason(result.status),
-              result.status,
-              mlSettings.baseCooldownMs,
-              profile,
-              {
-                exactCooldownMs:
-                  modelScopedClaudeCooldownMs ?? selectLockoutCooldownMs(lockoutHintMs, mlSettings),
-                maxCooldownMs: mlSettings.maxCooldownMs,
-                exactCooldownIsUpstreamReset: lockoutHintVerified,
-              }
-            );
-          }
           lockoutRecorded = true;
         }
       }
@@ -1220,23 +1217,6 @@ export async function executeTargetAttempt(opts: {
             exactCooldownIsUpstreamReset: lockoutHintVerified,
           }
         );
-        if (targetConnId && !target.connectionId) {
-          recordModelLockoutFailure(
-            provider,
-            "",
-            rawModel,
-            classifyLockoutReason(result.status),
-            result.status,
-            mlSettings.baseCooldownMs,
-            profile,
-            {
-              exactCooldownMs:
-                modelScopedClaudeCooldownMs ?? selectLockoutCooldownMs(lockoutHintMs, mlSettings),
-              maxCooldownMs: mlSettings.maxCooldownMs,
-              exactCooldownIsUpstreamReset: lockoutHintVerified,
-            }
-          );
-        }
       }
     }
     deps.log.warn("COMBO", `Model ${modelStr} failed, trying next`, {

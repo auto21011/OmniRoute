@@ -753,5 +753,5 @@ test("combo target timeout 504 records model lockout when 504 is in errorCodes",
   });
 
   assert.equal(isModelLocked(provider, connectionId, model), true);
-  assert.equal(isModelLocked(provider, "", model), true);
+  assert.equal(isModelLocked(provider, "", model), false);
 });
