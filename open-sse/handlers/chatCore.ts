@@ -163,6 +163,7 @@ import { requestTtftMs } from "../utils/streamTiming.ts";
 import { resolveSuppressThinkClose, THINKING_MARKER_HEADER } from "../utils/thinkCloseMarker.ts";
 import { resolveStreamReadinessTimeout } from "../utils/streamReadinessPolicy.ts";
 import { resolveAgentGoalPolicy } from "../utils/agentGoalPolicy.ts";
+import { hasActiveClaudeThinking } from "../utils/thinkingBudget.ts";
 import { createStreamController, isDeadlineAbortReason } from "../utils/streamHandler.ts";
 import {
   isComboPerModelTimeoutAbort,
