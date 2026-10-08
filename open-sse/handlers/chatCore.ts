@@ -3110,7 +3110,7 @@ async function handleChatCoreInner({
     onError: (event) => onPipelineStreamError?.(event),
     provider,
     model,
-    connectionId,
+    connectionId: pendingConnId,
     pendingRequestId,
     clientResponseFormat,
     clientAbortSignal: clientRawRequest?.signal,
@@ -4442,6 +4442,7 @@ async function handleChatCoreInner({
       });
       if (isRequestAborted) {
         streamController.handleError(createSafeAbortError());
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
         return createErrorResult(499, "Request aborted");
       }
       const persistentErrorCode = projectFailureUsageErrorCode({
@@ -4454,6 +4455,7 @@ async function handleChatCoreInner({
         errorType: upstreamErrorType,
       });
       persistFailureUsage(failureStatus, persistentErrorCode);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
       console.log(`${COLORS.red}[ERROR] ${safeFailureMessage}${COLORS.reset}`);
       if (stream && upstreamErrorCode) {
         const result = createStreamingErrorResult(

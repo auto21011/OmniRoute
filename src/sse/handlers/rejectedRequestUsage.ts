@@ -17,7 +17,7 @@
  * Best-effort: both writes swallow their own errors — logging a rejection must
  * never turn into a second failure on the response path.
  */
-import { saveCallLog, saveRequestUsage } from "@/lib/usageDb";
+import { saveCallLog, saveRequestUsage, removePendingByCorrelationId } from "@/lib/usageDb";
 import { redactVideoTranscriptFieldsForLog } from "@/lib/guardrails/videoBridgeSnapshotRedaction";
 
 export interface RejectedRequestUsageInput {
@@ -69,6 +69,12 @@ export async function recordRejectedRequestUsage(input: RejectedRequestUsageInpu
 
   const now = Date.now();
   const duration = typeof startTime === "number" ? now - startTime : 0;
+
+  if (correlationId) {
+    try {
+      removePendingByCorrelationId(correlationId);
+    } catch {}
+  }
 
   // 1. call_logs — preserves /dashboard/logs visibility (unchanged behavior).
   await saveCallLog({

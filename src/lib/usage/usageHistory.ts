@@ -411,12 +411,15 @@ export function trackPendingRequest(
       return newDetail.id;
     } else if (!started && nextCount >= 0) {
       if (pendingRequestId) {
-        const bucket = pendingRequests.details[connectionId][modelKey];
-        const [removed] = bucket.splice(
-          bucket.findIndex((entry) => entry.id === pendingRequestId),
-          1
-        );
-        if (removed) pendingById.delete(removed.id);
+        const bucket = pendingRequests.details[connectionId]?.[modelKey];
+        if (bucket) {
+          const index = bucket.findIndex((entry) => entry.id === pendingRequestId);
+          if (index >= 0) {
+            const [removed] = bucket.splice(index, 1);
+            if (removed) pendingById.delete(removed.id);
+          }
+        }
+        pendingById.delete(pendingRequestId);
       } else if (pendingRequests.details[connectionId]?.[modelKey]?.length) {
         const removed = pendingRequests.details[connectionId][modelKey].shift();
         if (removed) pendingById.delete(removed.id);
@@ -428,6 +431,8 @@ export function trackPendingRequest(
         }
       }
     }
+  } else if (!started && pendingRequestId) {
+    pendingById.delete(pendingRequestId);
   }
 }
 
@@ -554,12 +559,65 @@ export function finalizePendingRequestById(
 ): boolean {
   if (!id) return false;
   const detail = pendingById.get(id);
-  if (!detail?.connectionId) return false;
+  if (!detail) return false;
+  const connectionId = detail.connectionId;
   const modelKey = detail.provider ? `${detail.model} (${detail.provider})` : detail.model;
-  if (!isSafeKey(modelKey)) return false;
-  const details = pendingRequests.details[detail.connectionId]?.[modelKey];
+  const details =
+    connectionId && isSafeKey(modelKey)
+      ? pendingRequests.details[connectionId]?.[modelKey]
+      : undefined;
   const index = details?.findIndex((entry) => entry.id === id) ?? -1;
-  return finalizePendingDetailAt(detail.connectionId, modelKey, index, metadata) !== null;
+  if (connectionId && index >= 0) {
+    return finalizePendingDetailAt(connectionId, modelKey, index, metadata) !== null;
+  }
+
+  // Fallback: detail was in pendingById but not in connection bucket (or connectionId missing)
+  const completedAt = Date.now();
+  const updated = {
+    ...detail,
+    ...normalizePendingMetadata(metadata),
+    completedAt,
+    durationMs: Math.max(0, completedAt - detail.startedAt),
+  };
+  const storedCompletedDetail = storeCompletedDetail(updated);
+  if (storedCompletedDetail && connectionId) {
+    maybeEnrichCompletedDetail(updated, connectionId);
+    scheduleCompletedDetailCleanup(updated.id);
+  }
+  pendingById.delete(id);
+  if (detail.correlationId) {
+    pendingIdByCorrelation.delete(detail.correlationId);
+  }
+  if (connectionId && isSafeKey(modelKey)) {
+    cleanupPendingDetails(connectionId, modelKey);
+    decrementPendingCounters(modelKey, connectionId);
+  }
+  return true;
+}
+
+/**
+ * Remove any pending request matching the given correlationId.
+ * Used when a client request (or combo) finishes (successfully or with failure)
+ * to ensure no orphaned pending records linger in memory.
+ */
+export function removePendingByCorrelationId(correlationId: string | null | undefined): boolean {
+  if (!correlationId) return false;
+  let found = false;
+  const entry = pendingIdByCorrelation.get(correlationId);
+  if (entry?.id) {
+    pendingIdByCorrelation.delete(correlationId);
+    if (finalizePendingRequestById(entry.id, {})) {
+      found = true;
+    }
+  }
+  for (const [id, detail] of pendingById.entries()) {
+    if (detail.correlationId === correlationId) {
+      if (finalizePendingRequestById(id, {})) {
+        found = true;
+      }
+    }
+  }
+  return found;
 }
 
 /**
