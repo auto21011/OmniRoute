@@ -38,8 +38,8 @@
  * `tool_calls` / `invoke` / `parameter` (structural closing tags).
  */
 
-// Full-width or ASCII pipe — matches composerToolCalls.ts's FW class.
-const FW = "[｜|]";
+// Full-width or ASCII pipe — matches composerToolCalls.ts's FW class (accepts 1 or 2 pipes).
+const FW = "[｜|]{1,2}";
 
 // Opening tool-call tag: <｜DSML｜:ToolName>  (colon + name, optional attrs).
 const DSML_OPEN_RE = new RegExp(`<${FW}DSML${FW}:(\\w+)([^>]*)>`, "i");
@@ -72,6 +72,26 @@ const STRAY_CLOSE_SRC =
 // separator newline. A leading newline before the first closer is NOT
 // consumed, so the echo's own trailing newline is preserved.
 const DSML_STRAY_CLOSE_RE = new RegExp(STRAY_CLOSE_SRC, "gi");
+
+// Complete or container DSML markup regex for stripping leaked tool envelopes
+// (e.g. <｜DSML｜ calls>, </｜DSML｜ calls>, <｜｜DSML｜｜ invoke name="...">).
+const DSML_MARKUP_REGEX = new RegExp(
+  `</?${FW}DSML${FW}(?::\\w+|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*)?>`,
+  "gi"
+);
+const STRAY_PARAMETER_OR_INVOKE_CLOSE_RE = /<\/(?:parameter|invoke)>\n*/gi;
+
+/**
+ * Strip DeepSeek DSML tool markers (e.g. `<｜DSML｜ calls>`, `</｜DSML｜invoke>`, `<｜｜DSML｜｜ calls>`)
+ * that leak into assistant message content or streaming deltas.
+ */
+export function stripDsmlToolMarkup(content: string): string {
+  if (!content || !/[｜|]DSML[｜|]/i.test(content)) return content;
+  return content
+    .replace(DSML_MARKUP_REGEX, "")
+    .replace(STRAY_PARAMETER_OR_INVOKE_CLOSE_RE, "")
+    .replace(/\n{3,}/g, "\n\n");
+}
 
 // Partial opening marker at the very tail of a (streaming) chunk: a `<｜DSML｜`
 // that never closes — hold it back so it cannot leak as visible text and can
@@ -131,8 +151,8 @@ export function parseDsmlToolCalls(text: string): ParseDsmlResult {
     const toolName = openMatch[1];
     const afterOpen = remaining.slice(openMatch.index + openMatch[0].length);
     const closeRe = dsmlCloseRe(toolName);
-    const closeMatch = closeRe.exec(afterOpen);
-    if (!closeMatch) {
+    const closeMatch = afterOpen.match(closeRe);
+    if (!closeMatch || closeMatch.index === undefined) {
       // Opener without a closer — incomplete block. Treat the opener itself
       // as held-back (drop it from content) rather than leaking the marker.
       return { content: cleaned, toolCalls, holdback: openMatch[0] + afterOpen };
