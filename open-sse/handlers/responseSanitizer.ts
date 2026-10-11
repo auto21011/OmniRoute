@@ -18,12 +18,18 @@ import {
 } from "./responseSanitizer/usageFields.ts";
 import { stripObfuscationZeroWidth } from "../utils/zeroWidth.ts";
 import { normalizeArrayContentChunk } from "../utils/arrayContentDelta.ts";
+import {
+  hasDsmlToolCalls,
+  parseDsmlToolCalls,
+  stripDsmlToolMarkup,
+} from "../utils/dsmlToolCalls.ts";
 import { assignAliasCacheWrite } from "../utils/pickCacheCreationTokens.ts";
 import { findBalancedJsonEnd } from "./responseSanitizer/balancedJson.ts";
 export {
   extractThinkingFromContent,
   shouldParseTextualReasoningTags,
 } from "./responseSanitizer/reasoning.ts";
+export { stripDsmlToolMarkup } from "../utils/dsmlToolCalls.ts";
 
 /**
  * Response Sanitizer — Normalizes LLM responses to strict OpenAI SDK format.
@@ -373,8 +379,8 @@ function sanitizeChoice(
 
 function sanitizeMessageContent(msgRecord: JsonRecord, options: ParseOptions = {}): JsonRecord {
   if (typeof msgRecord.content === "string") {
-    const strippedContent = stripInternalReasoningPlaceholder(
-      stripInternalToolEnvelopeText(msgRecord.content)
+    const strippedContent = stripDsmlToolMarkup(
+      stripInternalReasoningPlaceholder(stripInternalToolEnvelopeText(msgRecord.content))
     );
     const nativeReasoning = getReadableReasoningValue(msgRecord);
     const { content, thinking } =
@@ -417,15 +423,49 @@ function sanitizeMessage(msg: unknown, options: ParseOptions = {}): unknown {
   if (msgRecord.role) sanitized.role = msgRecord.role;
   if (msgRecord.refusal !== undefined) sanitized.refusal = msgRecord.refusal;
 
-  Object.assign(sanitized, sanitizeMessageContent(msgRecord, options));
+  // If upstream did not provide tool_calls, check if raw DSML tool calls are present in content
+  let dsmlExtractedToolCalls: unknown[] | null = null;
+  let dsmlRemainingContent: string | null = null;
+  if (
+    !msgRecord.tool_calls &&
+    typeof msgRecord.content === "string" &&
+    hasDsmlToolCalls(msgRecord.content)
+  ) {
+    const dsmlResult = parseDsmlToolCalls(msgRecord.content);
+    if (dsmlResult.toolCalls.length > 0) {
+      dsmlExtractedToolCalls = dsmlResult.toolCalls;
+      dsmlRemainingContent = dsmlResult.content;
+    }
+  }
+
+  const effectiveMsgRecord =
+    dsmlRemainingContent !== null ? { ...msgRecord, content: dsmlRemainingContent } : msgRecord;
+
+  Object.assign(sanitized, sanitizeMessageContent(effectiveMsgRecord, options));
 
   copyOpenAICompatibleReasoningFields(msgRecord, sanitized);
   applyTextualToolCallSanitization(sanitized, msgRecord);
+
+  if (dsmlExtractedToolCalls && !sanitized.tool_calls) {
+    sanitized.tool_calls = dsmlExtractedToolCalls;
+  }
 
   if (msgRecord.tool_calls) {
     sanitized.tool_calls = Array.isArray(msgRecord.tool_calls)
       ? msgRecord.tool_calls.map((toolCall) => stripZeroWidthToolCallArguments(toolCall))
       : msgRecord.tool_calls;
+  }
+
+  // When tool_calls are present and content only contains residual whitespace/DSML tags, normalize to null
+  if (
+    sanitized.tool_calls &&
+    Array.isArray(sanitized.tool_calls) &&
+    sanitized.tool_calls.length > 0
+  ) {
+    if (typeof sanitized.content === "string") {
+      const stripped = stripDsmlToolMarkup(sanitized.content).trim();
+      sanitized.content = stripped.length > 0 ? stripped : null;
+    }
   }
 
   if (msgRecord.function_call) {
@@ -717,10 +757,10 @@ function sanitizeResponsesStreamingEvent(parsedRecord: JsonRecord): JsonRecord {
   // there too. Only touch string values and only the allow-listed event types —
   // never function-call argument events.
   if (RESPONSES_STREAMING_TEXT_DELTA_EVENTS.has(eventType) && typeof sanitized.delta === "string") {
-    sanitized.delta = stripZeroWidthText(sanitized.delta);
+    sanitized.delta = stripDsmlToolMarkup(stripZeroWidthText(sanitized.delta));
   }
   if (RESPONSES_STREAMING_TEXT_DONE_EVENTS.has(eventType) && typeof sanitized.text === "string") {
-    sanitized.text = stripZeroWidthText(sanitized.text);
+    sanitized.text = stripDsmlToolMarkup(stripZeroWidthText(sanitized.text));
   }
   if (
     eventType === "response.function_call_arguments.delta" &&
@@ -1096,10 +1136,22 @@ export function sanitizeStreamingChunk(parsed: unknown): unknown {
           // prettier-ignore
           { if (deltaRecord.role !== undefined) delta.role = deltaRecord.role; if (typeof deltaRecord.refusal === "string") delta.refusal = deltaRecord.refusal; }
           if (deltaRecord.content !== undefined) {
-            delta.content =
-              typeof deltaRecord.content === "string"
-                ? collapseExcessiveNewlines(stripZeroWidthText(deltaRecord.content))
-                : deltaRecord.content;
+            if (typeof deltaRecord.content === "string") {
+              const stripped = collapseExcessiveNewlines(
+                stripDsmlToolMarkup(stripZeroWidthText(deltaRecord.content))
+              );
+              if (
+                stripped.length === 0 &&
+                (deltaRecord.role !== undefined ||
+                  (Array.isArray(deltaRecord.tool_calls) && deltaRecord.tool_calls.length > 0))
+              ) {
+                // Omit empty content when role or tool_calls are already present on this chunk
+              } else {
+                delta.content = stripped;
+              }
+            } else {
+              delta.content = deltaRecord.content;
+            }
           }
           copyOpenAICompatibleReasoningFields(deltaRecord, delta);
           // Parity with the non-streaming path: strip the zero-width joiners that the
@@ -1107,7 +1159,9 @@ export function sanitizeStreamingChunk(parsed: unknown): unknown {
           // is shared, so strip locally on the fields it writes (string values only).
           for (const reasoningKey of ["reasoning_content", "reasoning", "reasoning_text"]) {
             if (typeof delta[reasoningKey] === "string") {
-              delta[reasoningKey] = stripZeroWidthText(delta[reasoningKey] as string);
+              delta[reasoningKey] = stripDsmlToolMarkup(
+                stripZeroWidthText(delta[reasoningKey] as string)
+              );
             }
           }
           if (deltaRecord.tool_calls !== undefined) {
