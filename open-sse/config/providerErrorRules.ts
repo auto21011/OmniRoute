@@ -567,21 +567,50 @@ export function hasOperatorRuleForProvider(provider: string | null | undefined):
 }
 
 /**
+ * Render a structured error's `code`/`type` fields as a flat text fragment so
+ * an operator rule can match the canonical error identifier (e.g.
+ * `combo_target_timeout`) in addition to the human-readable message. Missing,
+ * blank and non-string fields are skipped; returns "" when neither carries a
+ * value.
+ */
+function structuredErrorCodeText(structuredError: unknown): string {
+  if (!structuredError || typeof structuredError !== "object") return "";
+  const rec = structuredError as { code?: unknown; type?: unknown };
+  const parts: string[] = [];
+  for (const value of [rec.code, rec.type]) {
+    if (typeof value === "string" && value.trim().length > 0) parts.push(value.trim());
+  }
+  return parts.join(" ");
+}
+
+/**
  * Resolve the body handed to getProviderErrorRuleMatch inside
- * checkFallbackError: full error text for FULL_TEXT_RULE_PROVIDERS or any
- * provider with an operator-declared rule, the structured error for everyone
- * else.
+ * checkFallbackError: for FULL_TEXT_RULE_PROVIDERS the raw error text; for any
+ * provider with an operator-declared rule the error text PLUS the structured
+ * `code`/`type`; the structured error for everyone else.
+ *
+ * The operator-rule case is deliberately wider than the built-in FULL_TEXT one:
+ * an operator rule's `match` is a substring of the error body, and the
+ * canonical identifier for a synthetic OmniRoute failure — `combo_target_timeout`
+ * for a per-model combo timeout — lives ONLY in the structured `code`/`type`.
+ * Its message ("Model <x> timed out") never carries that identifier, so a rule
+ * keyed on the code could otherwise never match. Appending the code/type keeps
+ * the message-substring matching that already worked (`timed out`, ...) intact
+ * while making the structured identifier addressable.
  */
 export function resolveRuleMatchBody(
   provider: string | null | undefined,
   structuredError: unknown,
   errorText: string | null | undefined
 ): unknown {
-  if (
-    provider &&
-    (usesFullTextRuleBody(provider.toLowerCase()) || hasOperatorRuleForProvider(provider)) &&
-    errorText
-  ) {
+  if (!provider) return structuredError ?? null;
+  const key = provider.toLowerCase();
+  if (hasOperatorRuleForProvider(key)) {
+    if (!errorText) return structuredError ?? null;
+    const codeText = structuredErrorCodeText(structuredError);
+    return codeText ? `${errorText} ${codeText}` : errorText;
+  }
+  if (usesFullTextRuleBody(key) && errorText) {
     return errorText;
   }
   return structuredError ?? null;
