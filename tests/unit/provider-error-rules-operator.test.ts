@@ -102,12 +102,34 @@ describe("operator error rules", () => {
   // persistence layer. Declaring an operator rule for a provider must be
   // sufficient by itself — no separate allowlist entry required.
   describe("operator rule bypasses the built-in allowlists", () => {
-    it("resolveRuleMatchBody hands the full error text once an operator rule exists for the provider", () => {
+    it("resolveRuleMatchBody hands the error text plus the structured code/type once an operator rule exists", () => {
       setOperatorProviderErrorRules({
         acme: [{ status: 404, match: "model withdrawn", scope: "model" }],
       });
-      const body = resolveRuleMatchBody("acme", { code: "not_found" }, "Model withdrawn upstream");
-      assert.equal(body, "Model withdrawn upstream");
+      const body = resolveRuleMatchBody(
+        "acme",
+        { code: "not_found", type: "invalid_request_error" },
+        "Model withdrawn upstream"
+      );
+      assert.equal(body, "Model withdrawn upstream not_found invalid_request_error");
+    });
+
+    it("operator rule matches the structured code when the message does not carry it", () => {
+      // Mirrors the combo per-model timeout: the 504 body's `error.code`/`error.type`
+      // is `combo_target_timeout`, but the message is only "Model <x> timed out".
+      // Before this fix the matcher only ever saw the message, so a rule keyed on
+      // the canonical identifier could never fire.
+      setOperatorProviderErrorRules({
+        nvidia: [{ status: 504, match: "combo_target_timeout", scope: "provider_single_model" }],
+      });
+      const body = resolveRuleMatchBody(
+        "nvidia",
+        { code: "combo_target_timeout", type: "combo_target_timeout" },
+        "Model nvidia/z-ai/glm-5.3 timed out"
+      );
+      const m = getProviderErrorRuleMatch("nvidia", 504, null, body);
+      assert.ok(m, "operator rule should match the structured combo_target_timeout code");
+      assert.equal(m.scope, "provider_single_model");
     });
 
     it("resolveRuleMatchBody keeps returning the structured error for a provider with no operator rule", () => {
@@ -135,6 +157,35 @@ describe("operator error rules", () => {
       const m = getProviderErrorRuleMatch("acme", 404, null, body);
       assert.ok(m, "operator rule should match once resolveRuleMatchBody hands it the raw text");
       assert.equal(m.scope, "model");
+    });
+
+    it("a 504 operator rule keyed on combo_target_timeout surfaces provider_single_model end to end", () => {
+      setOperatorProviderErrorRules({
+        nvidia: [
+          {
+            status: 504,
+            match: "combo_target_timeout",
+            scope: "provider_single_model",
+            reason: "server_error",
+            cooldownMs: 300_000,
+          },
+        ],
+      });
+      // This is exactly what the combo path hands checkFallbackError for a
+      // per-model timeout: message from the synthetic body's error.message, and
+      // structuredError from the body's error.code/error.type.
+      const fb = checkFallbackError(
+        504,
+        "Model nvidia/z-ai/glm-5.3 timed out",
+        0,
+        "z-ai/glm-5.3",
+        "nvidia",
+        null,
+        null,
+        { code: "combo_target_timeout", type: "combo_target_timeout" }
+      );
+      assert.equal(fb.shouldFallback, true);
+      assert.equal(fb.ruleScope, "provider_single_model");
     });
   });
 
