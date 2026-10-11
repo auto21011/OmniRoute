@@ -2,6 +2,7 @@ import { cloneLogPayload } from "@/lib/logPayloads";
 import { toNumber } from "@/shared/utils/numeric";
 import { FORMATS } from "../translator/formats.ts";
 import { jsonLength } from "./jsonSize.ts";
+import { stripDsmlToolMarkup } from "./dsmlToolCalls.ts";
 
 type StructuredSSEEvent = {
   index: number;
@@ -360,6 +361,10 @@ function createOpenAIReducer(fallbackModel?: string | null): SummaryReducer {
       if (finalToolCalls.length > 0) {
         finishReason = "tool_calls";
         message.tool_calls = finalToolCalls;
+        if (typeof message.content === "string") {
+          const stripped = stripDsmlToolMarkup(message.content).trim();
+          message.content = stripped.length > 0 ? stripped : null;
+        }
       }
 
       const result: JsonRecord = {

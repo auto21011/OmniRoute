@@ -7,6 +7,7 @@ const {
   sanitizeResponsesApiResponse,
   sanitizeStreamingChunk,
   shouldParseTextualReasoningTags,
+  stripDsmlToolMarkup,
 } = await import("../../open-sse/handlers/responseSanitizer.ts");
 
 test("extractThinkingFromContent separates think blocks from visible content", () => {
@@ -1248,4 +1249,199 @@ test("sanitizer leaves normal tool arguments byte-identical (no parse/restringif
     choices: { message: { tool_calls: { function: { arguments: string } }[] } }[];
   };
   assert.equal(nonStream.choices[0].message.tool_calls[0].function.arguments === rawArgs, true);
+});
+
+test("stripDsmlToolMarkup strips leaked DSML tags across single and double pipes", () => {
+  const samples = [
+    "<｜DSML｜ calls>",
+    "<｜｜DSML｜｜ calls>",
+    "</｜DSML｜ calls>",
+    "</｜｜DSML｜｜ calls>",
+    "<|DSML| calls>",
+    "<||DSML|| calls>",
+    "<｜DSML｜tool_calls>",
+    "</｜DSML｜tool_calls>",
+    "<｜DSML｜:Read>",
+    "</｜DSML｜:Read>",
+    '<｜｜DSML｜｜ invoke name="write">',
+    "</｜｜DSML｜｜ invoke>",
+    '<｜｜DSML｜｜ parameter name="file_path" string="true">',
+    "</｜｜DSML｜｜ parameter>",
+    "</｜DSML｜parameter>",
+    "</｜DSML｜invoke>",
+    "<｜DSML｜>",
+    "</｜DSML｜>",
+  ];
+
+  for (const sample of samples) {
+    assert.equal(
+      stripDsmlToolMarkup(sample).trim(),
+      "",
+      `Expected ${sample} to be completely stripped`
+    );
+  }
+
+  assert.equal(stripDsmlToolMarkup("<｜DSML｜ calls>\nHello world").trim(), "Hello world");
+  assert.equal(stripDsmlToolMarkup("Hello world\n</｜DSML｜tool_calls>").trim(), "Hello world");
+});
+
+interface SanitizedDeltaChunk {
+  choices: {
+    delta: {
+      content?: string;
+      role?: string;
+      reasoning_content?: string;
+      tool_calls?: {
+        index: number;
+        id: string;
+        type: string;
+        function: { name: string };
+      }[];
+    };
+  }[];
+}
+
+interface SanitizedMessageResponse {
+  choices: {
+    message: {
+      content: string | null;
+      reasoning_content?: string;
+      tool_calls: {
+        id: string;
+        type: string;
+        function: {
+          name: string;
+          arguments: string;
+        };
+      }[];
+    };
+  }[];
+}
+
+test("sanitizeStreamingChunk cleans leaked DSML markers from content and reasoning deltas", () => {
+  // Delta with only <｜DSML｜ calls> -> collapsed to empty string
+  const chunk1 = sanitizeStreamingChunk({
+    object: "chat.completion.chunk",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          content: "<｜DSML｜ calls>",
+        },
+      },
+    ],
+  }) as unknown as SanitizedDeltaChunk;
+  assert.equal(chunk1.choices[0].delta.content, "");
+
+  // Delta with role and <｜DSML｜ calls> -> content omitted, role preserved
+  const chunkWithRole = sanitizeStreamingChunk({
+    object: "chat.completion.chunk",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          role: "assistant",
+          content: "<｜DSML｜ calls>",
+        },
+      },
+    ],
+  }) as unknown as SanitizedDeltaChunk;
+  assert.equal(chunkWithRole.choices[0].delta.role, "assistant");
+  assert.equal("content" in chunkWithRole.choices[0].delta, false);
+
+  // Delta with tool_calls and <｜DSML｜ calls> -> content omitted, tool_calls preserved
+  const chunkWithTools = sanitizeStreamingChunk({
+    object: "chat.completion.chunk",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          content: "<｜DSML｜ calls>",
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_123",
+              type: "function",
+              function: { name: "bash" },
+            },
+          ],
+        },
+      },
+    ],
+  }) as unknown as SanitizedDeltaChunk;
+  assert.equal("content" in chunkWithTools.choices[0].delta, false);
+  assert.equal(chunkWithTools.choices[0].delta.tool_calls?.length, 1);
+
+  // Delta with reasoning_content containing leaked DSML marker
+  const chunkWithReasoning = sanitizeStreamingChunk({
+    object: "chat.completion.chunk",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          reasoning_content: "Checking logs </｜DSML｜tool_calls>",
+        },
+      },
+    ],
+  }) as unknown as SanitizedDeltaChunk;
+  assert.equal(chunkWithReasoning.choices[0].delta.reasoning_content?.trim(), "Checking logs");
+});
+
+test("sanitizeOpenAIResponse normalizes content to null when tool_calls exist and content has DSML leak", () => {
+  const sanitized = sanitizeOpenAIResponse({
+    id: "chatcmpl_dsml_leak",
+    model: "deepseek-ai/deepseek-v4.1-flash",
+    choices: [
+      {
+        index: 0,
+        finish_reason: "tool_calls",
+        message: {
+          role: "assistant",
+          content: "<｜DSML｜ calls>",
+          reasoning_content: "I will run bash now",
+          tool_calls: [
+            {
+              id: "call_bash_1",
+              type: "function",
+              function: {
+                name: "bash",
+                arguments: '{"command":"ls -la"}',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  }) as unknown as SanitizedMessageResponse;
+
+  const msg = sanitized.choices[0].message;
+  assert.equal(msg.content, null, "content must be normalized to null when it only had DSML leak");
+  assert.equal(msg.reasoning_content, "I will run bash now");
+  assert.equal(msg.tool_calls.length, 1);
+  assert.equal(msg.tool_calls[0].function.name, "bash");
+});
+
+test("sanitizeOpenAIResponse parses raw DSML tool calls when upstream omitted tool_calls", () => {
+  const sanitized = sanitizeOpenAIResponse({
+    id: "chatcmpl_raw_dsml",
+    model: "deepseek-ai/deepseek-v4.1-flash",
+    choices: [
+      {
+        index: 0,
+        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: "<｜DSML｜:Read>\n<path>images/omniroute.png</path>\n</｜DSML｜:Read>",
+        },
+      },
+    ],
+  }) as unknown as SanitizedMessageResponse;
+
+  const msg = sanitized.choices[0].message;
+  assert.equal(msg.content, null);
+  assert.equal(msg.tool_calls.length, 1);
+  assert.equal(msg.tool_calls[0].function.name, "Read");
+  assert.deepEqual(JSON.parse(msg.tool_calls[0].function.arguments), {
+    path: "images/omniroute.png",
+  });
 });
