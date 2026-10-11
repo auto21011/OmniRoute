@@ -468,6 +468,8 @@ export async function handleRoundRobinCombo({
   const exhaustedProviders = new Set<string>();
   const exhaustedConnections = new Set<string>();
   const transientRateLimitedProviders = new Set<string>();
+  // rule scope='provider_single_model' — skip set keyed `${provider}:${rawModel}`.
+  const exhaustedProviderModels = new Set<string>();
   const rejectedModelKeys = new Set<string>(); // same-model targets after a request-scoped refusal
 
   // Try each model starting from the round-robin target
@@ -564,7 +566,8 @@ export async function handleRoundRobinCombo({
       const exhaustedSkip = getExhaustedTargetSkipReason(
         target,
         exhaustedProviders,
-        exhaustedConnections
+        exhaustedConnections,
+        exhaustedProviderModels
       );
       if (exhaustedSkip) {
         log.info("COMBO-RR", exhaustedSkip);
@@ -997,7 +1000,12 @@ export async function handleRoundRobinCombo({
             isTokenLimitBreach,
             allAccountsRateLimited: isAllAccountsRateLimited,
             requestScopedFailure: scopedFailure,
-            sets: { exhaustedProviders, exhaustedConnections, transientRateLimitedProviders },
+            sets: {
+              exhaustedProviders,
+              exhaustedConnections,
+              transientRateLimitedProviders,
+              exhaustedProviderModels,
+            },
             log,
             tag: "COMBO-RR",
             exhaustedLogLevel: "debug",

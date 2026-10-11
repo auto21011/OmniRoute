@@ -95,7 +95,10 @@ import {
   getProviderErrorRuleMatch,
   resolveRuleMatchBody,
 } from "@omniroute/open-sse/config/providerErrorRules.ts";
-import { applyProviderScopeCooldown } from "./providerScopeCooldown";
+import {
+  applyProviderScopeCooldown,
+  applyProviderSingleModelScopeLockout,
+} from "./providerScopeCooldown";
 import { applyEgressIpLockout } from "./egressIpLockout";
 import {
   preflightQuota,
@@ -2526,7 +2529,7 @@ export async function getProviderCredentialsWithQuotaPreflight(
 export function isAgentrouterConnectionQuotaScope(
   provider: string | null | undefined,
   fallbackResult: {
-    ruleScope?: "model" | "provider" | "connection";
+    ruleScope?: "model" | "provider" | "connection" | "provider_single_model";
     reason?: string;
     permanent?: boolean;
     creditsExhausted?: boolean;
@@ -2806,6 +2809,28 @@ export async function markAccountUnavailable(
         fallbackResult,
         getUnavailableUntil
       );
+    }
+
+    // Provider-single-model-scoped rule: lock ONE model across EVERY non-terminal
+    // connection under the provider (each connection stays active for its other
+    // models). Runs BEFORE the connection-scope branch below so a rule declaring
+    // this scope is never downgraded to a whole-connection cooldown. Requires a
+    // resolved model; without one it falls through unchanged. Backed by the same
+    // in-memory model-lock store as scope='model' (not persisted).
+    if (
+      fallbackResult.ruleScope === "provider_single_model" &&
+      provider &&
+      model &&
+      !disableCooling
+    ) {
+      return await applyProviderSingleModelScopeLockout({
+        provider,
+        model,
+        status,
+        fallbackResult,
+        profile: effectiveProviderProfile,
+        maxCooldownMs: mlSettings.maxCooldownMs,
+      });
     }
 
     const ruleScopeIsConnection =

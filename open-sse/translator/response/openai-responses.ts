@@ -1434,7 +1434,9 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
 
     if (!state.finishReasonSent) {
       state.finishReasonSent = true;
-      let reason = computeFinishReason(state);
+      // Widen past computeFinishReason's "stop" | "tool_calls": the incomplete
+      // branch below overrides with the OpenAI-standard "length" / "content_filter".
+      let reason: string = computeFinishReason(state);
       if (
         eventType === "response.incomplete" ||
         data.response?.status === "incomplete" ||

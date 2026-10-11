@@ -229,7 +229,7 @@ describe("operator error rules", () => {
         }
       );
 
-      assert.equal(exhausted, true);
+      assert.equal(exhausted.providerExhausted, true);
       assert.ok(
         sets.exhaustedProviders.has(customProvider),
         "provider must be added to exhaustedProviders"
@@ -274,7 +274,7 @@ describe("operator error rules", () => {
         }
       );
 
-      assert.equal(exhausted, true);
+      assert.equal(exhausted.providerExhausted, true);
       assert.ok(sets.exhaustedConnections.has(`${customProvider}:conn-123`));
       assert.ok(!sets.exhaustedProviders.has(customProvider));
     });

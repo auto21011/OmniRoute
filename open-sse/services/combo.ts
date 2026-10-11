@@ -1009,6 +1009,7 @@ async function handleComboChatInner({
     exhaustedProviders: new Set(),
     exhaustedConnections: new Set(),
     transientRateLimitedProviders: new Set(),
+    exhaustedProviderModels: new Set(),
     abortControllers: new Map(),
     dispatchedTargets: new Set(),
     targetFailureTrust: new Map(),
