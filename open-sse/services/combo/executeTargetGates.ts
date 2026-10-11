@@ -242,7 +242,8 @@ export async function evaluateExecuteTargetGates(opts: {
   const exhaustedSkip = getExhaustedTargetSkipReason(
     target,
     state.exhaustedProviders,
-    state.exhaustedConnections
+    state.exhaustedConnections,
+    state.exhaustedProviderModels
   );
   if (exhaustedSkip) {
     deps.log.info("COMBO", exhaustedSkip);

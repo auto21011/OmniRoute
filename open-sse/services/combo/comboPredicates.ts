@@ -95,16 +95,28 @@ export function isProviderCircuitOpenResult(
  * caller emits with its OWN tag ("COMBO" / "COMBO-RR"); each caller keeps its own control flow
  * (return null vs continue) and its own fallbackCount bookkeeping.
  */
+const EMPTY_EXHAUSTED_PROVIDER_MODELS: ReadonlySet<string> = new Set();
+
 export function getExhaustedTargetSkipReason(
   target: ResolvedComboTarget,
   exhaustedProviders: ReadonlySet<string>,
-  exhaustedConnections: ReadonlySet<string>
+  exhaustedConnections: ReadonlySet<string>,
+  exhaustedProviderModels: ReadonlySet<string> = EMPTY_EXHAUSTED_PROVIDER_MODELS
 ): string | null {
   const { provider, modelStr, connectionId } = target;
   // #1731v2: skip targets whose provider:connection pair had a connection-level error.
   if (provider && connectionId) {
     if (exhaustedConnections.has(`${provider}:${connectionId}`)) {
       return `Skipping ${modelStr} — connection ${connectionId} for provider ${provider} had connection error (#1731v2)`;
+    }
+  }
+  // rule scope='provider_single_model': skip ONLY this model across the provider's
+  // remaining targets. Key normalized exactly like the set is populated
+  // (rawModel = parseModel(modelStr).model || modelStr, see executeTargetAttempt.ts).
+  if (provider) {
+    const rawModel = parseModel(modelStr).model || modelStr;
+    if (exhaustedProviderModels.has(`${provider}:${rawModel}`)) {
+      return `Skipping ${modelStr} — provider ${provider} model ${rawModel} locked provider-wide this request (rule scope=provider_single_model)`;
     }
   }
   // #1731: skip targets from a provider that already signaled full quota exhaustion this request.

@@ -227,6 +227,7 @@ export async function dispatchWithCooldownRetry(opts: {
       state.exhaustedProviders = new Set<string>();
       state.exhaustedConnections = new Set<string>();
       state.transientRateLimitedProviders = new Set<string>();
+      state.exhaustedProviderModels = new Set<string>();
       state.skippedForCircuitOpen = false;
       state.earliestCircuitOpenRetryMs = 0;
       state.skippedConnectionCooldownUntil = undefined;

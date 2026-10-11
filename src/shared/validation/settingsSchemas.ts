@@ -319,7 +319,7 @@ export const updateSettingsSchema = z.object({
         z.object({
           status: z.number().int().min(100).max(599),
           match: z.string().min(1).max(200),
-          scope: z.enum(["model", "provider", "connection"]),
+          scope: z.enum(["model", "provider", "connection", "provider_single_model"]),
           reason: z
             .enum([
               "auth_error",

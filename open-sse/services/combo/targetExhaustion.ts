@@ -121,6 +121,14 @@ export type ComboExhaustionSets = {
   exhaustedProviders: Set<string>;
   exhaustedConnections: Set<string>;
   transientRateLimitedProviders: Set<string>;
+  /**
+   * Provider-single-model skip set (rule scope='provider_single_model'), keyed
+   * `${provider}:${rawModel}`. Unlike `exhaustedProviders` (which skips ALL models
+   * of the provider) this skips only that model, across every account of the
+   * provider. Optional so existing set constructors stay valid; dispatchers
+   * always populate it.
+   */
+  exhaustedProviderModels?: Set<string>;
 };
 
 export type ApplyComboTargetExhaustionOptions = {
@@ -128,8 +136,10 @@ export type ApplyComboTargetExhaustionOptions = {
   fallbackResult: Parameters<typeof isProviderExhaustedReason>[0] & {
     /** #10334 — agentrouter + opencode family; see isAgentrouterConnectionQuotaScope
      * (src/sse/services/auth.ts). Populated only for providers in
-     * HONORS_RULE_LOCK_SCOPE_PROVIDERS (agentrouter + opencode family). */
-    ruleScope?: "model" | "provider" | "connection";
+     * HONORS_RULE_LOCK_SCOPE_PROVIDERS (agentrouter + opencode family) or any
+     * provider with an operator-declared rule. `provider_single_model` locks one
+     * model across every account under the provider. */
+    ruleScope?: "model" | "provider" | "connection" | "provider_single_model";
     permanent?: boolean;
     cooldownMs?: number;
     usedUpstreamRetryHint?: boolean;
@@ -292,6 +302,28 @@ export function applyComboTargetExhaustion(
     honorsRuleLockScope(provider)
   ) {
     markProviderQuotaExhaustion(provider, opts);
+    return { ...derived, providerExhausted: true };
+  }
+
+  // Provider-single-model-scoped rule (operator rule with
+  // scope='provider_single_model'): skip ONLY this model on the provider's
+  // remaining targets this request — sibling models on the same provider stay
+  // eligible (unlike scope='provider'). Keyed `${provider}:${rawModel}` and read
+  // back by getExhaustedTargetSkipReason.
+  if (
+    opts.fallbackResult?.ruleScope === "provider_single_model" &&
+    provider &&
+    provider !== "unknown" &&
+    honorsRuleLockScope(provider) &&
+    opts.rawModel
+  ) {
+    if (sets.exhaustedProviderModels) {
+      sets.exhaustedProviderModels.add(`${provider}:${opts.rawModel}`);
+    }
+    log.info(
+      tag,
+      `Provider ${provider} model ${opts.rawModel} locked provider-wide (rule scope=provider_single_model) — marking for skip on remaining targets`
+    );
     return { ...derived, providerExhausted: true };
   }
 

@@ -43,7 +43,7 @@ export type ProviderErrorRuleMatch = {
    * built-in catalog rule) is tracked as a follow-up — see
    * `docs/architecture/RESILIENCE_GUIDE.md` §7.
    */
-  scope: "model" | "provider" | "connection";
+  scope: "model" | "provider" | "connection" | "provider_single_model";
   /** Optional explicit cooldown; falls back to the existing per-reason defaults. */
   cooldownMs?: number;
 };
@@ -62,7 +62,14 @@ export type ProviderErrorRuleMatch = {
 export type OperatorProviderErrorRule = {
   status: number;
   match: string;
-  scope: "model" | "provider" | "connection";
+  /**
+   * `provider_single_model`: lock ONE model across EVERY account under the
+   * provider (all connections), leaving that provider's other models and every
+   * other provider untouched. Backed by the same in-memory model-lock store as
+   * scope `"model"` (see `applyProviderSingleModelScopeLockout`), applied once
+   * per non-terminal connection.
+   */
+  scope: "model" | "provider" | "connection" | "provider_single_model";
   reason?: ConfiguredErrorReason;
   cooldownMs?: number;
 };

@@ -39,6 +39,8 @@ export type AttemptLoopState = {
   exhaustedProviders: Set<string>;
   exhaustedConnections: Set<string>;
   transientRateLimitedProviders: Set<string>;
+  /** rule scope='provider_single_model' — skip set keyed `${provider}:${rawModel}`. */
+  exhaustedProviderModels?: Set<string>;
   abortControllers: Map<number, AbortController>;
   dispatchedTargets: Set<string>;
   targetFailureTrust: Map<string, { observedFailure: boolean; allObservedFailuresQuota: boolean }>;

@@ -17,7 +17,7 @@ export type ConfiguredErrorReason =
 export type OperatorProviderErrorRule = {
   status: number;
   match: string;
-  scope: "model" | "provider" | "connection";
+  scope: "model" | "provider" | "connection" | "provider_single_model";
   reason?: ConfiguredErrorReason;
   cooldownMs?: number;
 };
@@ -89,7 +89,9 @@ export default function ProviderErrorRulesCard() {
   const [formStatusCodeSelect, setFormStatusCodeSelect] = useState<string>("429");
   const [formCustomStatusCode, setFormCustomStatusCode] = useState<string>("429");
   const [formMatchText, setFormMatchText] = useState<string>("");
-  const [formScope, setFormScope] = useState<"model" | "connection" | "provider">("model");
+  const [formScope, setFormScope] = useState<
+    "model" | "connection" | "provider" | "provider_single_model"
+  >("model");
   const [formReason, setFormReason] = useState<ConfiguredErrorReason>("quota_exhausted");
   const [formCooldownPreset, setFormCooldownPreset] = useState<string>("default");
   const [formCustomCooldownMs, setFormCustomCooldownMs] = useState<string>("60000");
@@ -414,6 +416,7 @@ export default function ProviderErrorRulesCard() {
 
   const scopeBadgeVariant = (scope: string) => {
     if (scope === "model") return "default";
+    if (scope === "provider_single_model") return "primary";
     if (scope === "connection") return "warning";
     return "error";
   };
@@ -421,6 +424,8 @@ export default function ProviderErrorRulesCard() {
   const scopeLabel = (scope: string) => {
     if (scope === "model") return t("providerErrorRulesScopeModelBadge");
     if (scope === "connection") return t("providerErrorRulesScopeConnectionBadge");
+    if (scope === "provider_single_model")
+      return t("providerErrorRulesScopeProviderSingleModelBadge");
     if (scope === "provider") return t("providerErrorRulesScopeProviderBadge");
     return scope;
   };
@@ -428,6 +433,8 @@ export default function ProviderErrorRulesCard() {
   const scopeHint = (scope: string) => {
     if (scope === "model") return t("providerErrorRulesScopeModelHint");
     if (scope === "connection") return t("providerErrorRulesScopeConnectionHint");
+    if (scope === "provider_single_model")
+      return t("providerErrorRulesScopeProviderSingleModelHint");
     if (scope === "provider") return t("providerErrorRulesScopeProviderHint");
     return "";
   };
@@ -715,10 +722,18 @@ export default function ProviderErrorRulesCard() {
             </label>
             <Select
               value={formScope}
-              onChange={(e) => setFormScope(e.target.value as "model" | "connection" | "provider")}
+              onChange={(e) =>
+                setFormScope(
+                  e.target.value as "model" | "connection" | "provider" | "provider_single_model"
+                )
+              }
               options={[
                 { value: "model", label: t("providerErrorRulesScopeModel") },
                 { value: "connection", label: t("providerErrorRulesScopeConnection") },
+                {
+                  value: "provider_single_model",
+                  label: t("providerErrorRulesScopeProviderSingleModel"),
+                },
                 { value: "provider", label: t("providerErrorRulesScopeProvider") },
               ]}
             />
@@ -733,6 +748,12 @@ export default function ProviderErrorRulesCard() {
                 <div>
                   <span className="font-semibold text-amber-500">{tc("tip") || "提示"}：</span>
                   {t("providerErrorRulesScopeConnectionHint")}
+                </div>
+              )}
+              {formScope === "provider_single_model" && (
+                <div>
+                  <span className="font-semibold text-accent">{tc("tip") || "提示"}：</span>
+                  {t("providerErrorRulesScopeProviderSingleModelHint")}
                 </div>
               )}
               {formScope === "provider" && (
@@ -802,8 +823,8 @@ export default function ProviderErrorRulesCard() {
           onConfirm={handleConfirmDelete}
           title={t("providerErrorRulesDelete")}
           message={`${t("providerErrorRulesConfirmDelete", { provider: deleteTarget.provider })} ("${deleteTarget.match}")`}
-          confirmLabel={tc("delete")}
-          cancelLabel={tc("cancel")}
+          confirmText={tc("delete")}
+          cancelText={tc("cancel")}
           variant="danger"
         />
       )}

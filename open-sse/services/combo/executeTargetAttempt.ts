@@ -950,6 +950,7 @@ export async function executeTargetAttempt(
         exhaustedProviders: state.exhaustedProviders,
         exhaustedConnections: state.exhaustedConnections,
         transientRateLimitedProviders: state.transientRateLimitedProviders,
+        exhaustedProviderModels: state.exhaustedProviderModels,
       },
       log: deps.log,
       tag: "COMBO",

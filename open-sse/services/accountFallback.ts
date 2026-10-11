@@ -1719,7 +1719,7 @@ export function checkFallbackError(
    * persistence layer can honor it instead of re-deriving scope from
    * hasPerModelQuota(). Populated ONLY when honorsRuleLockScope(provider) is true;
    * always undefined for every other provider, so existing consumers are unaffected. */
-  ruleScope?: "model" | "provider" | "connection";
+  ruleScope?: "model" | "provider" | "connection" | "provider_single_model";
 } {
   // #10360: an executor-result contract violation is OUR bug, not the provider's.
   // Retrying reproduces it verbatim, and cooling the connection down (or tripping
