@@ -3163,14 +3163,30 @@ async function handleChatCoreInner({
 
       if (Array.isArray(bodyToSend?.messages)) {
         for (const msg of bodyToSend.messages) {
-          if (msg && typeof msg.content === "string" && /[｜|]DSML[｜|]/i.test(msg.content)) {
-            const stripped = stripDsmlToolMarkup(msg.content).trim();
-            msg.content =
-              stripped.length > 0
-                ? stripped
-                : Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0
-                  ? null
-                  : "";
+          if (!msg) continue;
+          const hasTools = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+          if (typeof msg.content === "string") {
+            if (
+              /[｜|]DSML[｜|]/i.test(msg.content) ||
+              /<[｜|]/.test(msg.content) ||
+              (hasTools && /^[\s\n]*<[｜|]*$/i.test(msg.content))
+            ) {
+              const stripped = stripDsmlToolMarkup(msg.content).trim();
+              msg.content =
+                stripped.length > 0 && (!hasTools || (!stripped.startsWith("<") && !/^[\s\n]*<[｜|]*$/i.test(stripped)))
+                  ? stripped
+                  : hasTools
+                    ? null
+                    : "";
+            }
+          } else if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part && part.type === "text" && typeof part.text === "string") {
+                if (/[｜|]DSML[｜|]/i.test(part.text) || /<[｜|]/.test(part.text)) {
+                  part.text = stripDsmlToolMarkup(part.text).trim();
+                }
+              }
+            }
           }
         }
       }

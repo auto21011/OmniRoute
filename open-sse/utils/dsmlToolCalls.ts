@@ -74,20 +74,20 @@ const STRAY_CLOSE_SRC =
 const DSML_STRAY_CLOSE_RE = new RegExp(STRAY_CLOSE_SRC, "gi");
 
 // Complete or container DSML markup regex for stripping leaked tool envelopes
-// (e.g. <｜DSML｜ calls>, </｜DSML｜ calls>, <｜｜DSML｜｜ invoke name="...">).
+// (e.g. <｜DSML｜ calls>, </｜DSML｜ calls>, ｜DSML｜ calls>, <｜｜DSML｜｜ invoke name="...">, <｜DSML｜:Read>).
 const DSML_MARKUP_REGEX = new RegExp(
-  `</?${FW}DSML${FW}(?::\\w+|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*)?>\\s*`,
+  `(?:</?${FW}|${FW})DSML${FW}(?::\\w+>|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*>?|>)\\s*`,
   "gi"
 );
 const STRAY_PARAMETER_OR_INVOKE_CLOSE_RE = /<\/(?:parameter|invoke)>\n*/gi;
 
 const LEADING_DSML_MARKUP_REGEX = new RegExp(
-  `^\\s*</?${FW}DSML${FW}(?::\\w+|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*)?>\\s*`,
+  `^\\s*(?:</?${FW}|${FW})DSML${FW}(?::\\w+>|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*>?|>)\\s*`,
   "i"
 );
 
 /**
- * Strip DeepSeek DSML tool markers (e.g. `<｜DSML｜ calls>`, `</｜DSML｜invoke>`, `<｜｜DSML｜｜ calls>`)
+ * Strip DeepSeek DSML tool markers (e.g. `<｜DSML｜ calls>`, `</｜DSML｜invoke>`, `｜DSML｜ calls>`, `<｜｜DSML｜｜ calls>`)
  * that leak into assistant message content or streaming deltas.
  */
 export function stripDsmlToolMarkup(content: string): string {
@@ -101,9 +101,24 @@ export function stripDsmlToolMarkup(content: string): string {
   return stripped;
 }
 
-// Partial opening marker at the very tail of a (streaming) chunk: a `<｜DSML｜`
-// that never closes — hold it back so it cannot leak as visible text and can
-// be re-evaluated once more bytes arrive.
+// Partial opening or container marker at the very tail of a (streaming) chunk:
+// e.g. `\n\n<`, `<｜`, `\n\n<｜DSML`, `｜DSML｜ calls` (without closing `>`).
+// Hold it back so it cannot leak as visible text and can be combined once more bytes arrive.
+export const DSML_PARTIAL_TRAILING_RE =
+  /(?:\n*<\/?[｜|]{0,2}|\n*<\/?[｜|]{1,2}D(?:S(?:M(?:L(?:[｜|]{0,2}[^>]*)?)?)?)?|[｜|]{1,2}D(?:S(?:M(?:L(?:[｜|]{0,2}[^>]*)?)?)?)?)$/i;
+
+export function extractStreamingDsmlHoldback(text: string): { content: string; holdback: string } {
+  if (!text) return { content: "", holdback: "" };
+  const match = text.match(DSML_PARTIAL_TRAILING_RE);
+  if (match && match.index !== undefined) {
+    return {
+      content: text.slice(0, match.index),
+      holdback: text.slice(match.index),
+    };
+  }
+  return { content: text, holdback: "" };
+}
+
 const DSML_PARTIAL_OPEN_RE = new RegExp(`(<${FW}DSML${FW}[^<]*)$`, "i");
 
 export interface DsmlToolCall {

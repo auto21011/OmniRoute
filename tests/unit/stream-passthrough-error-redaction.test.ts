@@ -458,3 +458,24 @@ test("createSSEStream in passthrough mode strips leaked DSML markup and reserial
   assert.match(result.output, /chatcmpl-ad6e1ef9b59c549b/);
   assert.match(result.output, /"role":"assistant"/);
 });
+
+test("createSSEStream in passthrough mode strips split DSML tags across chunk boundaries", async () => {
+  const convertedLog: string[] = [];
+  const validId = "chatcmpl-a5b78833b8e145b5";
+  const chunks = [
+    `data: {"id":"${validId}","choices":[{"index":0,"delta":{"content":"\\n\\n<","reasoning_content":"thinking"}}]}\n\n`,
+    `data: {"id":"${validId}","choices":[{"index":0,"delta":{"content":"｜DSML｜ calls>\\n"}}]}\n\n`,
+    `data: {"id":"${validId}","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"test","arguments":"{}"}}]}}]}\n\n`,
+    `data: {"id":"${validId}","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n`,
+    "data: [DONE]\n\n",
+  ];
+  const result = await collectUntilFailure(chunks, FORMATS.OPENAI, convertedLog);
+  assert.equal(result.output.includes("DSML"), false, "output stream must not contain DSML");
+  assert.equal(
+    result.output.includes("<"),
+    false,
+    "output stream must not contain stray < from split DSML tag"
+  );
+  assert.match(result.output, /chatcmpl-a5b78833b8e145b5/);
+  assert.match(result.output, /"name":"test"/);
+});

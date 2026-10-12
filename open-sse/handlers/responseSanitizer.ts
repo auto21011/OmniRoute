@@ -22,7 +22,7 @@ export {
   extractThinkingFromContent,
   shouldParseTextualReasoningTags,
 } from "./responseSanitizer/reasoning.ts";
-export { stripDsmlToolMarkup } from "../utils/dsmlToolCalls.ts";
+export { stripDsmlToolMarkup, extractStreamingDsmlHoldback } from "../utils/dsmlToolCalls.ts";
 
 /**
  * Response Sanitizer — Normalizes LLM responses to strict OpenAI SDK format.

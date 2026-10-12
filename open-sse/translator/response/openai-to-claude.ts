@@ -15,6 +15,7 @@ import {
   hasDsmlToolCalls,
   parseDsmlToolCalls,
   stripDsmlToolMarkup,
+  extractStreamingDsmlHoldback,
 } from "../../utils/dsmlToolCalls.ts";
 import {
   createDirectivePreambleStripper,
@@ -486,6 +487,11 @@ export function openaiToClaudeResponse(chunk, state) {
 
       if (dsmlContent) {
         dsmlContent = stripDsmlToolMarkup(dsmlContent);
+        const extracted = extractStreamingDsmlHoldback(dsmlContent);
+        dsmlContent = extracted.content;
+        if (extracted.holdback) {
+          state._dsmlHoldback = (state._dsmlHoldback || "") + extracted.holdback;
+        }
       }
 
       // Check for XML <invoke> blocks that some models emit instead of JSON tool_calls
