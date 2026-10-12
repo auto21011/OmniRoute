@@ -134,6 +134,7 @@ export {
 import { resolveMemoryOwnerId, runMemoryExtractionGate } from "./chatCore/memoryExtraction.ts";
 import { checkResourcePressureGuard } from "../utils/resourcePressure.ts";
 import { normalizeHeaders } from "../utils/headers.ts";
+import { stripDsmlToolMarkup } from "../utils/dsmlToolCalls.ts";
 import { resolveChatCoreRequestFormat } from "./chatCore/requestFormat.ts";
 import { resolveChatCoreTargetFormat } from "./chatCore/targetFormat.ts";
 import { resolveOmniGlyphTransport } from "../services/compression/imageTransportPolicy.ts";
@@ -3159,6 +3160,20 @@ async function handleChatCoreInner({
       // (kiro user-fold, antigravity Cloud Code envelope) are covered by the
       // gated PRE-translation pass before translateRequest instead.
       bodyToSend = injectSystemPromptPostTranslation(bodyToSend, { targetFormat });
+
+      if (Array.isArray(bodyToSend?.messages)) {
+        for (const msg of bodyToSend.messages) {
+          if (msg && typeof msg.content === "string" && /[｜|]DSML[｜|]/i.test(msg.content)) {
+            const stripped = stripDsmlToolMarkup(msg.content).trim();
+            msg.content =
+              stripped.length > 0
+                ? stripped
+                : Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0
+                  ? null
+                  : "";
+          }
+        }
+      }
 
       updatePendingScope(pendingScope, {
         providerRequest: bodyToSend,

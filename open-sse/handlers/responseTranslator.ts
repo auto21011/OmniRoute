@@ -19,6 +19,7 @@ import {
   extractThinkingFromContent,
   shouldParseTextualReasoningTags,
 } from "./responseSanitizer/reasoning.ts";
+import { stripDsmlToolMarkup } from "../utils/dsmlToolCalls.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -774,12 +775,17 @@ function convertOpenAINonStreamingToClaude(
   const hasToolCalls = Array.isArray(messageObj.tool_calls) && messageObj.tool_calls.length > 0;
 
   if (messageObj.content !== undefined && messageObj.content !== null) {
-    hasTextOrReasoning = true;
-    const resolvedText = toString(messageObj.content);
-    content.push({
-      type: "text",
-      text: resolvedText === "" ? "(empty response)" : resolvedText,
-    });
+    let resolvedText = toString(messageObj.content);
+    resolvedText = stripDsmlToolMarkup(resolvedText);
+    if (resolvedText.trim() === "" && hasToolCalls) {
+      // Omit empty text block when tool calls exist
+    } else {
+      hasTextOrReasoning = true;
+      content.push({
+        type: "text",
+        text: resolvedText === "" ? "(empty response)" : resolvedText,
+      });
+    }
   } else if (suppressThinking && reasoningText) {
     // Reasoning-ONLY response with thinking opted out (requestedThinking===false):
     // no ordinary content, reasoning suppressed above. Relay the reasoning text as

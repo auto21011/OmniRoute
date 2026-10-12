@@ -10,6 +10,7 @@ import {
 } from "./responsesStreamHelpers.ts";
 import { getAnyReasoningValue } from "./reasoningFields.ts";
 import { projectStreamFailureEvent, type StreamFailurePayload } from "./streamErrorFormat.ts";
+import { stripDsmlToolMarkup } from "./dsmlToolCalls.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -199,19 +200,45 @@ function handleResponsesTailPayload(
   return output;
 }
 
-function handleOpenAiTailPayload(parsed: JsonRecord, context: PassthroughTailProcessorContext) {
+function handleOpenAiTailPayload(
+  parsed: JsonRecord,
+  context: PassthroughTailProcessorContext
+): boolean {
   const firstChoice = Array.isArray(parsed.choices)
     ? (parsed.choices[0] as JsonRecord | undefined)
     : undefined;
   const delta = asRecord(firstChoice?.delta);
+  let modified = false;
   if (typeof delta.content === "string") {
-    context.appendPassthroughContent(delta.content);
-    context.addTotalContentLength(delta.content.length);
+    const cleaned = stripDsmlToolMarkup(delta.content);
+    if (cleaned !== delta.content) {
+      if (
+        cleaned.trim().length === 0 &&
+        (delta.role != null || (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0))
+      ) {
+        delete delta.content;
+      } else {
+        delta.content = cleaned.trim().length === 0 ? "" : cleaned;
+      }
+      modified = true;
+    }
+    if (typeof delta.content === "string") {
+      context.appendPassthroughContent(delta.content);
+      context.addTotalContentLength(delta.content.length);
+    }
   }
   const reasoningDelta = getAnyReasoningValue(delta);
   if (reasoningDelta) {
-    context.appendPassthroughReasoning(reasoningDelta);
+    const cleanedReasoning = stripDsmlToolMarkup(reasoningDelta);
+    if (cleanedReasoning !== reasoningDelta) {
+      modified = true;
+      if (typeof delta.reasoning_content === "string") {
+        delta.reasoning_content = cleanedReasoning;
+      }
+    }
+    context.appendPassthroughReasoning(cleanedReasoning);
   }
+  return modified;
 }
 
 export function processBufferedPassthroughLine(
@@ -304,8 +331,8 @@ export function processBufferedPassthroughLine(
       output = handleResponsesTailPayload(parsed, output, context);
     } else if (!isClaude) {
       const restoredToolName = context.restoreOpenAIToolNames(parsed);
-      handleOpenAiTailPayload(parsed, context);
-      if (restoredToolName) output = `data: ${JSON.stringify(parsed)}\n\n`;
+      const tailModified = handleOpenAiTailPayload(parsed, context);
+      if (restoredToolName || tailModified) output = `data: ${JSON.stringify(parsed)}\n\n`;
     }
 
     context.pushClientPayload(parsed);
