@@ -44,6 +44,7 @@ import {
   OMIT_STREAMING_CHUNK_MARKER,
   isResponsesCommentaryMessageItem,
   sanitizeStreamingChunk,
+  stripDsmlToolMarkup,
 } from "../handlers/responseSanitizer.ts";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 import {
@@ -2053,6 +2054,13 @@ export function createSSEStream(options: StreamOptions = {}) {
                   // sanitizeStreamingChunk, so the raw line must not be forwarded.
                   const hadArrayContent = Array.isArray(rawDelta?.content);
                   const nativeFailure = nativeFinishFailure(parsed); // before sanitize drops it
+                  const rawDeltaContent =
+                    typeof rawDelta?.content === "string" ? rawDelta.content : undefined;
+                  const hadRawDeltaContent = rawDelta ? "content" in rawDelta : false;
+                  const rawDeltaReasoning =
+                    typeof rawDelta?.reasoning_content === "string"
+                      ? rawDelta.reasoning_content
+                      : undefined;
 
                   if (!projectedFailure) {
                     parsed = sanitizeStreamingChunk(parsed);
@@ -2065,6 +2073,12 @@ export function createSSEStream(options: StreamOptions = {}) {
                       continue;
                     }
                   }
+
+                  const deltaAfterSanitize = parsed.choices?.[0]?.delta;
+                  const sanitizedModifiedContent =
+                    (hadRawDeltaContent && !("content" in (deltaAfterSanitize || {}))) ||
+                    deltaAfterSanitize?.content !== rawDeltaContent ||
+                    deltaAfterSanitize?.reasoning_content !== rawDeltaReasoning;
 
                   const restoredOpenAIToolName = restoreOpenAIToolNames(parsed, toolNameMap);
                   const idFixed = hadNonStringTopLevelId ? false : fixInvalidId(parsed);
@@ -2124,6 +2138,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   // upstream delta did not already carry.
                   const needsReserialization =
                     hadArrayContent ||
+                    sanitizedModifiedContent ||
                     splitMixedReasoningContent ||
                     thinkParsed ||
                     hadReasoningAlias ||
@@ -2954,6 +2969,10 @@ export function createSSEStream(options: StreamOptions = {}) {
                 const prompt = Number(u?.prompt_tokens ?? u?.input_tokens ?? 0);
                 const completion = Number(u?.completion_tokens ?? u?.output_tokens ?? 0);
                 let content = passthroughAccumulatedContent.trim() || "";
+                if (content) {
+                  const strippedDsml = stripDsmlToolMarkup(content).trim();
+                  content = strippedDsml;
+                }
                 const finalBufferedTextualToolCall =
                   passthroughBufferedTextualToolCallContent.trim();
                 if (finalBufferedTextualToolCall) {
@@ -2975,6 +2994,9 @@ export function createSSEStream(options: StreamOptions = {}) {
                   passthroughHasToolCalls = true;
                   content = "";
                 } else if (containsMalformedTextualToolCall(content, allowedToolNames)) {
+                  content = "";
+                }
+                if (passthroughHasToolCalls && !content) {
                   content = "";
                 }
                 const message: Record<string, unknown> = {

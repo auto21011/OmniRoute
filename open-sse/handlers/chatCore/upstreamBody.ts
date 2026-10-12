@@ -42,6 +42,7 @@ import {
   stripGpt5ReasoningWhenTools,
 } from "../../services/gpt5SamplingGuard.ts";
 import { wireAdaptiveEffort } from "./adaptiveEffortWiring.ts";
+import { stripDsmlToolMarkup } from "../../utils/dsmlToolCalls.ts";
 
 type LoggerLike =
   | { debug?: (...args: unknown[]) => void; warn?: (tag: string, message: string) => void }

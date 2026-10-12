@@ -1445,3 +1445,34 @@ test("sanitizeOpenAIResponse parses raw DSML tool calls when upstream omitted to
     path: "images/omniroute.png",
   });
 });
+
+test("stripDsmlToolMarkup completely eliminates whitespace-padded leaked DSML container tags", async () => {
+  assert.equal(stripDsmlToolMarkup("\n\n<｜DSML｜ calls>\n"), "");
+  assert.equal(stripDsmlToolMarkup("\n\n<｜DSML｜ calls>\nHello"), "Hello");
+  assert.equal(stripDsmlToolMarkup("Before\n\n<｜DSML｜ calls>\nAfter"), "Before\n\nAfter");
+
+  const { parseDsmlToolCalls } = await import("../../open-sse/utils/dsmlToolCalls.ts");
+  const res1 = parseDsmlToolCalls("<｜DSML｜ calls>");
+  assert.equal(res1.content, "");
+  assert.equal(res1.holdback, "");
+  assert.equal(res1.toolCalls.length, 0);
+
+  const res2 = parseDsmlToolCalls("<｜DSML｜ calls>\nI will inspect the files.");
+  assert.equal(res2.content, "I will inspect the files.");
+  assert.equal(res2.holdback, "");
+
+  const chunk = sanitizeStreamingChunk({
+    object: "chat.completion.chunk",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          role: "assistant",
+          content: "\n\n<｜DSML｜ calls>\n",
+        },
+      },
+    ],
+  }) as unknown as SanitizedDeltaChunk;
+  assert.equal(chunk.choices[0].delta.role, "assistant");
+  assert.equal("content" in chunk.choices[0].delta, false);
+});
