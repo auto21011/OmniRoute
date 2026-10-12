@@ -46,6 +46,7 @@ import {
   isResponsesCommentaryMessageItem,
   sanitizeStreamingChunk,
   stripDsmlToolMarkup,
+  extractStreamingDsmlHoldback,
 } from "../handlers/responseSanitizer.ts";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 import {
@@ -907,6 +908,7 @@ export function createSSEStream(options: StreamOptions = {}) {
   let passthroughAccumulatedContent = "";
   let passthroughAccumulatedReasoning = "";
   let passthroughBufferedTextualToolCallContent = "";
+  let passthroughDsmlHoldback = "";
   /** Passthrough: whether a usage block was already forwarded to the client (prevents double). */
   let passthroughForwardedUsage = false;
   let passthroughForwardedUsageSummary = false;
@@ -2066,6 +2068,29 @@ export function createSSEStream(options: StreamOptions = {}) {
                       ? rawDelta.reasoning_content
                       : undefined;
 
+                  if (rawDelta && typeof rawDelta.content === "string") {
+                    if (passthroughDsmlHoldback) {
+                      rawDelta.content = passthroughDsmlHoldback + rawDelta.content;
+                      passthroughDsmlHoldback = "";
+                    }
+                    rawDelta.content = stripDsmlToolMarkup(rawDelta.content);
+                    if (rawDelta.content) {
+                      const extracted = extractStreamingDsmlHoldback(rawDelta.content);
+                      rawDelta.content = extracted.content;
+                      passthroughDsmlHoldback = extracted.holdback;
+                    }
+                    if (rawDelta.content.trim().length === 0) {
+                      if (
+                        rawDelta.role !== undefined ||
+                        (Array.isArray(rawDelta.tool_calls) && rawDelta.tool_calls.length > 0)
+                      ) {
+                        delete rawDelta.content;
+                      } else {
+                        rawDelta.content = "";
+                      }
+                    }
+                  }
+
                   if (!projectedFailure) {
                     parsed = sanitizeStreamingChunk(parsed);
                     if (
@@ -2154,6 +2179,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   // T18: Track if we saw tool calls & accumulate for call log
                   if (delta?.tool_calls && delta.tool_calls.length > 0) {
                     passthroughHasToolCalls = true;
+                    passthroughDsmlHoldback = "";
                     lastToolCallChunkTime = now;
                     for (const tc of delta.tool_calls) {
                       // Note: sanitizeStreamingChunk above already coerces non-string
@@ -2739,6 +2765,27 @@ export function createSSEStream(options: StreamOptions = {}) {
                 return;
               }
             }
+            if (passthroughDsmlHoldback) {
+              if (
+                passthroughHasToolCalls ||
+                /^[\s\n]*<[｜|]*$/i.test(passthroughDsmlHoldback) ||
+                /[｜|]DSML[｜|]/i.test(passthroughDsmlHoldback)
+              ) {
+                passthroughDsmlHoldback = "";
+              } else {
+                const flushedPayload = {
+                  id: "chatcmpl-" + crypto.randomUUID().replace(/-/g, "").slice(0, 16),
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: model || "unknown",
+                  choices: [{ index: 0, delta: { content: passthroughDsmlHoldback } }],
+                };
+                const flushedLine = `data: ${JSON.stringify(flushedPayload)}\n\n`;
+                passthroughAccumulatedContent += passthroughDsmlHoldback;
+                passthroughDsmlHoldback = "";
+                forward(controller, encoder.encode(flushedLine));
+              }
+            }
             const bufferedLine = buffer.trim();
             if (skipPassthroughEvent || /^event:\s*keepalive\b/i.test(bufferedLine)) {
               skipPassthroughEvent = false;
@@ -3000,8 +3047,15 @@ export function createSSEStream(options: StreamOptions = {}) {
                 } else if (containsMalformedTextualToolCall(content, allowedToolNames)) {
                   content = "";
                 }
-                if (passthroughHasToolCalls && !content) {
-                  content = "";
+                if (passthroughHasToolCalls) {
+                  if (
+                    !content ||
+                    content === "<" ||
+                    /^[\s\n]*<[｜|]*$/i.test(content) ||
+                    /[｜|]DSML[｜|]/i.test(content)
+                  ) {
+                    content = "";
+                  }
                 }
                 const message: Record<string, unknown> = {
                   role: "assistant",
