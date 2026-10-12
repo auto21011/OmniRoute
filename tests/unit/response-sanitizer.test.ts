@@ -1450,8 +1450,21 @@ test("stripDsmlToolMarkup completely eliminates whitespace-padded leaked DSML co
   assert.equal(stripDsmlToolMarkup("\n\n<｜DSML｜ calls>\n"), "");
   assert.equal(stripDsmlToolMarkup("\n\n<｜DSML｜ calls>\nHello"), "Hello");
   assert.equal(stripDsmlToolMarkup("Before\n\n<｜DSML｜ calls>\nAfter"), "Before\n\nAfter");
+  assert.equal(stripDsmlToolMarkup("｜DSML｜ calls>\n"), "");
+  assert.equal(stripDsmlToolMarkup("\n\n｜DSML｜ calls>\n"), "");
+  assert.equal(stripDsmlToolMarkup("<｜｜DSML｜｜ calls>"), "");
+  assert.equal(stripDsmlToolMarkup("｜｜DSML｜｜ calls>"), "");
 
-  const { parseDsmlToolCalls } = await import("../../open-sse/utils/dsmlToolCalls.ts");
+  const { parseDsmlToolCalls, extractStreamingDsmlHoldback } =
+    await import("../../open-sse/utils/dsmlToolCalls.ts");
+  const ext1 = extractStreamingDsmlHoldback("\n\n<");
+  assert.equal(ext1.content, "");
+  assert.equal(ext1.holdback, "\n\n<");
+
+  const ext2 = extractStreamingDsmlHoldback("Hello\n\n<");
+  assert.equal(ext2.content, "Hello");
+  assert.equal(ext2.holdback, "\n\n<");
+
   const res1 = parseDsmlToolCalls("<｜DSML｜ calls>");
   assert.equal(res1.content, "");
   assert.equal(res1.holdback, "");
