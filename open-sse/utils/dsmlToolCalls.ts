@@ -76,10 +76,15 @@ const DSML_STRAY_CLOSE_RE = new RegExp(STRAY_CLOSE_SRC, "gi");
 // Complete or container DSML markup regex for stripping leaked tool envelopes
 // (e.g. <｜DSML｜ calls>, </｜DSML｜ calls>, <｜｜DSML｜｜ invoke name="...">).
 const DSML_MARKUP_REGEX = new RegExp(
-  `</?${FW}DSML${FW}(?::\\w+|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*)?>`,
+  `</?${FW}DSML${FW}(?::\\w+|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*)?>\\s*`,
   "gi"
 );
 const STRAY_PARAMETER_OR_INVOKE_CLOSE_RE = /<\/(?:parameter|invoke)>\n*/gi;
+
+const LEADING_DSML_MARKUP_REGEX = new RegExp(
+  `^\\s*</?${FW}DSML${FW}(?::\\w+|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*)?>\\s*`,
+  "i"
+);
 
 /**
  * Strip DeepSeek DSML tool markers (e.g. `<｜DSML｜ calls>`, `</｜DSML｜invoke>`, `<｜｜DSML｜｜ calls>`)
@@ -87,10 +92,13 @@ const STRAY_PARAMETER_OR_INVOKE_CLOSE_RE = /<\/(?:parameter|invoke)>\n*/gi;
  */
 export function stripDsmlToolMarkup(content: string): string {
   if (!content || !/[｜|]DSML[｜|]/i.test(content)) return content;
-  return content
+  const stripped = content
+    .replace(LEADING_DSML_MARKUP_REGEX, "")
     .replace(DSML_MARKUP_REGEX, "")
     .replace(STRAY_PARAMETER_OR_INVOKE_CLOSE_RE, "")
     .replace(/\n{3,}/g, "\n\n");
+  if (stripped.trim().length === 0) return "";
+  return stripped;
 }
 
 // Partial opening marker at the very tail of a (streaming) chunk: a `<｜DSML｜`
@@ -133,7 +141,7 @@ export function parseDsmlToolCalls(text: string): ParseDsmlResult {
     if (!openMatch || openMatch.index === undefined) {
       // No more complete openers. Strip stray closing markers from the tail
       // (and a trailing partial opener, if any).
-      let tail = remaining.replace(DSML_STRAY_CLOSE_RE, "");
+      let tail = stripDsmlToolMarkup(remaining.replace(DSML_STRAY_CLOSE_RE, ""));
       const partial = tail.match(DSML_PARTIAL_OPEN_RE);
       let holdback = "";
       if (partial) {
@@ -141,7 +149,7 @@ export function parseDsmlToolCalls(text: string): ParseDsmlResult {
         holdback = partial[1];
       }
       cleaned += tail;
-      return { content: cleaned, toolCalls, holdback };
+      return { content: stripDsmlToolMarkup(cleaned), toolCalls, holdback };
     }
 
     // Emit any text before the opener (stray closers already removed).

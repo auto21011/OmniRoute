@@ -27,6 +27,7 @@ import {
   extractThinkingFromContent,
   shouldParseTextualReasoningTags,
 } from "./responseSanitizer/reasoning.ts";
+import { stripDsmlToolMarkup } from "../utils/dsmlToolCalls.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -815,7 +816,7 @@ function convertOpenAINonStreamingToClaude(
     content.push({ type: "text", text: messageObj.refusal });
   } else if (messageObj.content !== undefined && messageObj.content !== null) {
     hasTextOrReasoning = true;
-    const resolvedText = toString(messageObj.content);
+    const resolvedText = stripDsmlToolMarkup(toString(messageObj.content));
     // #15764: no placeholder text block next to tool_use when the text is empty.
     if (resolvedText !== "" || !hasToolCalls) {
       content.push({

@@ -444,3 +444,17 @@ test("a final response.failed frame without a trailing newline is projected befo
   assert.match(result.failure.message, /private-runtime\.ts/);
   assertNoHostileDetail(String(result.error));
 });
+
+test("createSSEStream in passthrough mode strips leaked DSML markup and reserializes chunks", async () => {
+  const convertedLog: string[] = [];
+  const validId = "chatcmpl-ad6e1ef9b59c549b";
+  const chunks = [
+    `data: {"id":"${validId}","choices":[{"index":0,"delta":{"role":"assistant","content":"<｜DSML｜ calls>"}}]}\n\n`,
+    `data: {"id":"${validId}","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"test","arguments":"{}"}}]}}]}\n\n`,
+    "data: [DONE]\n\n",
+  ];
+  const result = await collectUntilFailure(chunks, FORMATS.OPENAI, convertedLog);
+  assert.equal(result.output.includes("DSML"), false, "output stream must not contain DSML");
+  assert.match(result.output, /chatcmpl-ad6e1ef9b59c549b/);
+  assert.match(result.output, /"role":"assistant"/);
+});

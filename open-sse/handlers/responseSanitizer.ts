@@ -1141,13 +1141,13 @@ export function sanitizeStreamingChunk(parsed: unknown): unknown {
                 stripDsmlToolMarkup(stripZeroWidthText(deltaRecord.content))
               );
               if (
-                stripped.length === 0 &&
+                stripped.trim().length === 0 &&
                 (deltaRecord.role !== undefined ||
                   (Array.isArray(deltaRecord.tool_calls) && deltaRecord.tool_calls.length > 0))
               ) {
                 // Omit empty content when role or tool_calls are already present on this chunk
               } else {
-                delta.content = stripped;
+                delta.content = stripped.trim().length === 0 ? "" : stripped;
               }
             } else {
               delta.content = deltaRecord.content;
