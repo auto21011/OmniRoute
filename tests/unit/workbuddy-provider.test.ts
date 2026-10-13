@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { REGISTRY } from "../../open-sse/config/providers/index.ts";
@@ -595,5 +597,22 @@ describe("blast radius", () => {
     // Neither the channel string nor the message shape is rewritten for a
     // provider that never asked for it.
     assert.equal(transformed.messages[0].content, "You are Codex CLI.");
+  });
+});
+
+describe("oauth UI wiring", () => {
+  it("workbuddy is registered in DEVICE_CODE_PROVIDERS in OAuthModal", () => {
+    const modalPath = join(process.cwd(), "src/shared/components/OAuthModal.tsx");
+    const modalSource = readFileSync(modalPath, "utf8");
+    const match = modalSource.match(/const DEVICE_CODE_PROVIDERS = new Set\(\[([\s\S]*?)\]\)/);
+    assert.ok(match, "DEVICE_CODE_PROVIDERS set should exist in OAuthModal.tsx");
+    const providers = match[1]
+      .split(",")
+      .map((s) => s.trim().replace(/^"|"$/g, ""))
+      .filter(Boolean);
+    assert.ok(
+      providers.includes("workbuddy"),
+      "workbuddy must be in DEVICE_CODE_PROVIDERS so OAuthModal runs the device code flow rather than falling through to browser OAuth"
+    );
   });
 });
