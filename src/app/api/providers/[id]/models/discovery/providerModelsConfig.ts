@@ -27,6 +27,7 @@ import { shouldUseLiveAlibabaFreeModelDiscovery } from "@omniroute/open-sse/serv
 import { isDashscopeTextModelId } from "@omniroute/open-sse/services/dashscopeTextModels.ts";
 import { extractZaiToken } from "@omniroute/open-sse/services/zaiWebCredentials.ts";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
+import { WORKBUDDY_USER_AGENT } from "@omniroute/open-sse/config/providerHeaderProfiles.ts";
 import { normalizeOpenAiLikeModelsResponse, normalizeWorkbuddyModelsResponse } from "./normalizers";
 
 const QWEN_CLOUD_TEXT_MODEL_IDS = new Set(QWEN_CLOUD_TEXT_MODELS.map((model) => model.id));
@@ -877,7 +878,11 @@ export const PROVIDER_MODELS_CONFIG: Record<string, ProviderModelsConfigEntry> =
   workbuddy: {
     url: "https://www.workbuddy.ai/v3/config",
     method: "GET",
-    headers: { "Content-Type": "application/json", "X-Product": "SaaS" },
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": WORKBUDDY_USER_AGENT,
+      "X-Product": "SaaS",
+    },
     authHeader: "Authorization",
     authPrefix: "Bearer ",
     parseResponse: (data) => normalizeWorkbuddyModelsResponse(data),

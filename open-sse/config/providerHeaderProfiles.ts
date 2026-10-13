@@ -90,6 +90,8 @@ export const QODER_DEFAULT_USER_AGENT = "Qoder-Cli";
 // client fingerprint Tencent's WAF flags as anomalous (#12702).
 export const CODEBUDDY_CN_USER_AGENT = "CLI/2.108.1 CodeBuddy/2.108.1";
 
+export const WORKBUDDY_USER_AGENT = "WorkBuddy/1.0.0";
+
 export const KIRO_SDK_USER_AGENT = "AWS-SDK-JS/3.0.0 kiro-ide/1.0.0";
 export const KIRO_AMZ_USER_AGENT = "aws-sdk-js/3.0.0 kiro-ide/1.0.0";
 export const KIRO_STREAMING_TARGET =

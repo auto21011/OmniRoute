@@ -6247,17 +6247,20 @@
         "Accept": "text/event-stream",
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
+        "User-Agent": "WorkBuddy/1.0.0",
         "X-Product": "SaaS"
       },
       "nonStream": {
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
+        "User-Agent": "WorkBuddy/1.0.0",
         "X-Product": "SaaS"
       },
       "oauth": {
         "Accept": "text/event-stream",
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
+        "User-Agent": "WorkBuddy/1.0.0",
         "X-Product": "SaaS"
       }
     },

@@ -1,3 +1,4 @@
+import { WORKBUDDY_USER_AGENT } from "../../../providerHeaderProfiles.ts";
 import type { RegistryEntry } from "../../shared.ts";
 
 /**
@@ -44,7 +45,10 @@ export const workbuddyProvider: RegistryEntry = {
   authHeader: "Authorization",
   authPrefix: "Bearer ",
   // Required on every gateway route, including the device-flow endpoints.
-  headers: { "X-Product": "SaaS" },
+  headers: {
+    "User-Agent": WORKBUDDY_USER_AGENT,
+    "X-Product": "SaaS",
+  },
   oauth: {
     initiateUrl: "https://www.workbuddy.ai/v2/plugin/auth/state?platform=CLI",
     pollUrlBase: "https://www.workbuddy.ai/v2/plugin/auth/token",

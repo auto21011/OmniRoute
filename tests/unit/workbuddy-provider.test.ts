@@ -7,8 +7,11 @@ import { REGISTRY } from "../../open-sse/config/providers/index.ts";
 import { getExecutor } from "../../open-sse/executors/index.ts";
 import { requiresReasoningReplay } from "../../open-sse/services/reasoningCache.ts";
 import { PROVIDER_MODELS_CONFIG } from "../../src/app/api/providers/[id]/models/discovery/providerModelsConfig.ts";
+import { WORKBUDDY_USER_AGENT } from "../../open-sse/config/providerHeaderProfiles.ts";
 import {
   combineContent,
+  DEFAULT_LEADING_SYSTEM_PROMPT,
+  ensureLeadingSystemPrompt,
   foldTrailingCommentary,
   mergeAdjacentAssistantMessages,
   mergeAdjacentUserMessages,
@@ -78,6 +81,7 @@ describe("workbuddy registry entry", () => {
     ]);
     assert.equal(entry.baseUrl, "https://www.workbuddy.ai/v2/chat/completions");
     assert.equal(entry.headers?.["X-Product"], "SaaS");
+    assert.equal(entry.headers?.["User-Agent"], WORKBUDDY_USER_AGENT);
   });
 
   it("does not hardcode a model roster", () => {
@@ -115,6 +119,25 @@ describe("strictChatHistory helpers", () => {
     assert.deepEqual(parts, [
       { type: "image_url", image_url: { url: "u" } },
       { type: "text", text: "caption" },
+    ]);
+  });
+
+  it("ensures leading system prompt for strict upstreams", () => {
+    assert.deepEqual(ensureLeadingSystemPrompt([]), [
+      { role: "system", content: DEFAULT_LEADING_SYSTEM_PROMPT },
+    ]);
+    const userMsg = { role: "user", content: "hello" };
+    assert.deepEqual(ensureLeadingSystemPrompt([userMsg]), [
+      { role: "system", content: DEFAULT_LEADING_SYSTEM_PROMPT },
+      userMsg,
+    ]);
+    const systemMsg = { role: "system", content: "custom prompt" };
+    const historyWithSystem = [systemMsg, userMsg];
+    assert.equal(ensureLeadingSystemPrompt(historyWithSystem), historyWithSystem);
+    const devMsg = { role: "developer", content: "dev prompt" };
+    assert.deepEqual(ensureLeadingSystemPrompt([devMsg, userMsg]), [
+      { role: "system", content: "dev prompt" },
+      userMsg,
     ]);
   });
 
@@ -269,6 +292,19 @@ describe("repairChatHistory", () => {
     // 4. Exactly one result survived for the single call.
     assert.equal(out.messages.filter((m) => m.role === "tool").length, 1);
   });
+
+  it("prepends leading system prompt when history starts with a user turn", () => {
+    const singleUserTurn = bodyWith([USER]);
+    const out = repairChatHistory(singleUserTurn, {
+      repairSequence: true,
+    }) as ChatBody;
+
+    assert.equal(out.messages.length, 2);
+    assert.equal(out.messages[0].role, "system");
+    assert.equal(out.messages[0].content, DEFAULT_LEADING_SYSTEM_PROMPT);
+    assert.equal(out.messages[1].role, "user");
+    assert.equal(out.messages[1].content, "read a.txt");
+  });
 });
 
 describe("executor wiring", () => {
@@ -291,6 +327,22 @@ describe("executor wiring", () => {
     assert.notEqual(transformed.messages[transformed.messages.length - 1].role, "assistant");
     assert.equal(transformed.messages.filter((m) => m.role === "tool").length, 1);
   });
+
+  it("prepends leading system prompt for workbuddy when client sends no system message", async () => {
+    const executor = await getExecutor("workbuddy");
+    const transformed = (await executor.transformRequest(
+      "deepseek-v4.1-flash",
+      bodyWith([{ role: "user", content: "hello world" }]),
+      true,
+      { accessToken: "oauth-token", providerSpecificData: {} }
+    )) as ChatBody;
+
+    assert.equal(transformed.messages.length, 2);
+    assert.equal(transformed.messages[0].role, "system");
+    assert.equal(transformed.messages[0].content, DEFAULT_LEADING_SYSTEM_PROMPT);
+    assert.equal(transformed.messages[1].role, "user");
+    assert.equal(transformed.messages[1].content, "hello world");
+  });
 });
 
 describe("model discovery", () => {
@@ -300,6 +352,7 @@ describe("model discovery", () => {
     assert.equal(config.url, "https://www.workbuddy.ai/v3/config");
     assert.equal(config.method, "GET");
     assert.equal(config.headers["X-Product"], "SaaS");
+    assert.equal(config.headers["User-Agent"], WORKBUDDY_USER_AGENT);
     assert.equal(config.authHeader, "Authorization");
     assert.equal(config.authPrefix, "Bearer ");
   });

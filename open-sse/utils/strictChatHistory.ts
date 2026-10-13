@@ -22,6 +22,10 @@
  *   rejects a body that names a competing client, so those strings are
  *   neutralized before forwarding.
  *
+ *   `11128 first message is not system prompt` - the gateway requires the
+ *   first message in the request to be a system prompt; prepends a default
+ *   system prompt when missing.
+ *
  * Everything here is opt-in per provider (`strictChatHistory` /
  * `bodyStringReplacements` on the registry entry) and every helper returns the
  * original array when it has nothing to change, so a provider that does not
@@ -94,6 +98,30 @@ function mergeAssistantPair(first: JsonRecord, second: JsonRecord): JsonRecord {
   if (!isBlank(reasoning)) merged.reasoning_content = reasoning;
   if (hasToolCalls(second)) merged.tool_calls = second.tool_calls;
   return merged;
+}
+
+export const DEFAULT_LEADING_SYSTEM_PROMPT = "You are a helpful assistant.";
+
+/**
+ * Ensure the messages history begins with a system prompt.
+ *
+ * WorkBuddy strictly enforces that messages[0] must be a system prompt (rejection 11128:
+ * "first message is not system prompt"). If messages is empty or starts with another
+ * role, prepend a default system prompt. If the first message is a developer turn,
+ * normalize it to system.
+ */
+export function ensureLeadingSystemPrompt(messages: unknown[]): unknown[] {
+  if (messages.length === 0) {
+    return [{ role: "system", content: DEFAULT_LEADING_SYSTEM_PROMPT }];
+  }
+  const first = messages[0];
+  if (isRecord(first)) {
+    if (first.role === "system") return messages;
+    if (first.role === "developer") {
+      return [{ ...first, role: "system" }, ...messages.slice(1)];
+    }
+  }
+  return [{ role: "system", content: DEFAULT_LEADING_SYSTEM_PROMPT }, ...messages];
 }
 
 /**
@@ -424,6 +452,7 @@ export function repairChatHistory(body: unknown, options: ChatHistoryRepairOptio
   }
 
   let messages: unknown[] = sanitized.messages;
+  messages = ensureLeadingSystemPrompt(messages);
   messages = mergeAdjacentAssistantMessages(messages);
   messages = normalizeToolSequence(messages);
   messages = mergeAdjacentUserMessages(messages);
