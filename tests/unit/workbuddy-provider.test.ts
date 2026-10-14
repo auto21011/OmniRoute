@@ -368,6 +368,8 @@ describe("model discovery", () => {
     assert.equal(config.method, "GET");
     assert.equal(config.headers["X-Product"], "SaaS");
     assert.equal(config.headers["User-Agent"], WORKBUDDY_USER_AGENT);
+    assert.equal(config.headers["X-IDE-Type"], "CLI");
+    assert.equal(config.headers["X-IDE-Name"], "CLI");
     assert.equal(config.authHeader, "Authorization");
     assert.equal(config.authPrefix, "Bearer ");
   });

@@ -882,6 +882,8 @@ export const PROVIDER_MODELS_CONFIG: Record<string, ProviderModelsConfigEntry> =
       "Content-Type": "application/json",
       "User-Agent": WORKBUDDY_USER_AGENT,
       "X-Product": "SaaS",
+      "X-IDE-Type": "CLI",
+      "X-IDE-Name": "CLI",
     },
     authHeader: "Authorization",
     authPrefix: "Bearer ",
