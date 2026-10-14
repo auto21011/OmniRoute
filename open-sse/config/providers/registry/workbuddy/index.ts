@@ -48,6 +48,8 @@ export const workbuddyProvider: RegistryEntry = {
   headers: {
     "User-Agent": WORKBUDDY_USER_AGENT,
     "X-Product": "SaaS",
+    "X-IDE-Type": "CLI",
+    "X-IDE-Name": "CLI",
   },
   oauth: {
     initiateUrl: "https://www.workbuddy.ai/v2/plugin/auth/state?platform=CLI",

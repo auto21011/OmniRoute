@@ -82,6 +82,8 @@ describe("workbuddy registry entry", () => {
     assert.equal(entry.baseUrl, "https://www.workbuddy.ai/v2/chat/completions");
     assert.equal(entry.headers?.["X-Product"], "SaaS");
     assert.equal(entry.headers?.["User-Agent"], WORKBUDDY_USER_AGENT);
+    assert.equal(entry.headers?.["X-IDE-Type"], "CLI");
+    assert.equal(entry.headers?.["X-IDE-Name"], "CLI");
   });
 
   it("does not hardcode a model roster", () => {

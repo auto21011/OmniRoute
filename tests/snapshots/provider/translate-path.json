@@ -6248,12 +6248,16 @@
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
         "User-Agent": "WorkBuddy/1.0.0",
+        "X-IDE-Name": "CLI",
+        "X-IDE-Type": "CLI",
         "X-Product": "SaaS"
       },
       "nonStream": {
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
         "User-Agent": "WorkBuddy/1.0.0",
+        "X-IDE-Name": "CLI",
+        "X-IDE-Type": "CLI",
         "X-Product": "SaaS"
       },
       "oauth": {
@@ -6261,6 +6265,8 @@
         "Authorization": "Bearer <TOK>",
         "Content-Type": "application/json",
         "User-Agent": "WorkBuddy/1.0.0",
+        "X-IDE-Name": "CLI",
+        "X-IDE-Type": "CLI",
         "X-Product": "SaaS"
       }
     },
