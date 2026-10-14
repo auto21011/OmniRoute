@@ -345,6 +345,19 @@ describe("executor wiring", () => {
     assert.equal(transformed.messages[1].role, "user");
     assert.equal(transformed.messages[1].content, "hello world");
   });
+
+  it("preserves WORKBUDDY_USER_AGENT when clientHeaders passes a foreign User-Agent", async () => {
+    const executor = await getExecutor("workbuddy");
+    const headers = executor.buildHeaders(
+      { accessToken: "oauth-token", providerSpecificData: {} },
+      true,
+      { "User-Agent": "DeepSeek-Harness/1.0" },
+      "deepseek-v4.1-flash"
+    );
+    assert.equal(headers["User-Agent"], WORKBUDDY_USER_AGENT);
+    assert.equal(headers["X-IDE-Type"], "CLI");
+    assert.equal(headers["X-IDE-Name"], "CLI");
+  });
 });
 
 describe("model discovery", () => {

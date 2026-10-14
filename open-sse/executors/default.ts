@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
+import { setUserAgentHeader } from "./base/headers.ts";
 import { mapNvidiaGlm52ReasoningParams } from "./base/reasoningEffort.ts";
 import { PROVIDERS, OAUTH_ENDPOINTS } from "../config/constants.ts";
 import { getAccessToken } from "../services/tokenRefresh.ts";
@@ -683,6 +684,14 @@ export class DefaultExecutor extends BaseExecutor {
     // Allowlist-based: only specific x-opencode-* headers and User-Agent are forwarded
     if (clientHeaders) {
       forwardOpencodeClientHeaders(headers, clientHeaders);
+
+      // Registry-mandated User-Agent (e.g. WorkBuddy) must not be clobbered
+      // by arbitrary client User-Agents which upstream security filters reject.
+      const configuredUA =
+        this.config.headers?.["User-Agent"] ?? this.config.headers?.["user-agent"];
+      if (configuredUA) {
+        setUserAgentHeader(headers, configuredUA);
+      }
 
       // #3974: merge the client's negotiated anthropic-beta (allowlisted) into the
       // outbound set. The registry's static ANTHROPIC_BETA_CLAUDE_OAUTH lacks
