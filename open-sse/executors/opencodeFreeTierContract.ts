@@ -106,14 +106,21 @@ export function isPremiumOpencodeModel(model: string, provider: string): boolean
   // opencode-go has no free tier — every model requires a key.
   if (provider === "opencode-go") return true;
 
+  // Strip provider prefix if present (e.g. "oc/big-pickle" or "opencode/big-pickle")
+  const stripped = model.replace(/^[^/]+\//, "");
+
   // Strip trailing reasoning or effort suffix like "(low)" or "(high)"
-  const clean = model.replace(/\([^()]+\)\s*$/, "").trim();
+  const clean = stripped.replace(/\([^()]+\)\s*$/, "").trim();
 
   // Models ending in `-free` or containing `-free` are always free on the noauth/zen tier.
   if (clean.endsWith("-free") || clean.includes("-free")) return false;
 
   // Check the known free model catalog.
-  return !OPENCODE_FREE_MODELS.has(clean) && !OPENCODE_FREE_MODELS.has(model);
+  return (
+    !OPENCODE_FREE_MODELS.has(clean) &&
+    !OPENCODE_FREE_MODELS.has(stripped) &&
+    !OPENCODE_FREE_MODELS.has(model)
+  );
 }
 
 /**
