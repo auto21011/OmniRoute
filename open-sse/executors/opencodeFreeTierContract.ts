@@ -192,13 +192,15 @@ export function isPremiumOpencodeModel(model: string, provider: string): boolean
   // opencode-go has no free tier — every model requires a key.
   if (provider === "opencode-go") return true;
 
-  const id = model.trim();
+  const raw = model.trim();
+  // Strip a provider prefix if present (e.g. "oc/big-pickle" or "opencode/big-pickle").
+  const id = raw.replace(/^[^/]+\//, "");
   const catalog = opencodeFreeModelCatalog();
-  if (catalog) return !catalog.has(id);
+  if (catalog) return !catalog.has(id) && !catalog.has(raw);
 
   // Unsynced catalog: the legacy rule, so an unsynced deployment keeps its behavior.
   if (id.endsWith("-free")) return false;
-  return !OPENCODE_LEGACY_FREE_MODELS.has(id);
+  return !OPENCODE_LEGACY_FREE_MODELS.has(id) && !OPENCODE_LEGACY_FREE_MODELS.has(raw);
 }
 
 /**
