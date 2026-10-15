@@ -213,11 +213,15 @@ export function configuredPlaceholderToolNames(): string[] {
   return kept;
 }
 const PLACEHOLDER_TOOL_DESCRIPTION = "This tool is currently unavailable and must not be used.";
-export const PLACEHOLDER_TOOL_PARAMETERS = { type: "object", properties: {} } as const;
 
 export const FINGERPRINT_PROPERTY = {
   type: "string",
   description: "This tool is currently unavailable and must not be used.",
+} as const;
+
+export const PLACEHOLDER_TOOL_PARAMETERS = {
+  type: "object",
+  properties: { input: FINGERPRINT_PROPERTY },
 } as const;
 
 function hasTools(body: Record<string, unknown>): boolean {
@@ -277,23 +281,19 @@ export function applyFreeTierRequestContract<T>(
   const namesToAdd = baseNames.filter((name) => !existingNames.has(name));
 
   const placeholders = namesToAdd.map((name) => {
-    const requiresProperty = name === "bash" || name === "read";
-    const parameters = requiresProperty
-      ? { type: "object", properties: { input: FINGERPRINT_PROPERTY } }
-      : PLACEHOLDER_TOOL_PARAMETERS;
     return isResponses
       ? {
           type: "function",
           name,
           description: PLACEHOLDER_TOOL_DESCRIPTION,
-          parameters,
+          parameters: PLACEHOLDER_TOOL_PARAMETERS,
         }
       : {
           type: "function",
           function: {
             name,
             description: PLACEHOLDER_TOOL_DESCRIPTION,
-            parameters,
+            parameters: PLACEHOLDER_TOOL_PARAMETERS,
           },
         };
   });

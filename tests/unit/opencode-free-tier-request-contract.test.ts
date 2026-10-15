@@ -31,6 +31,7 @@ import {
   isGatedFreeTierRequest,
   requiresFreeTierRequestContract,
   surfaceFromBaseUrl,
+  PLACEHOLDER_TOOL_PARAMETERS,
 } from "../../open-sse/executors/opencodeFreeTierContract.ts";
 import {
   _resetToolObservationForTests,
@@ -107,7 +108,7 @@ test("the placeholder carries the names it is given, one entry each", () => {
   );
   // Names only: an empty parameter object, so a borrowed name is a list entry rather than
   // a tool the model could usefully call.
-  assert.deepEqual(tools[0].function.parameters, { type: "object", properties: {} });
+  assert.deepEqual(tools[0].function.parameters, PLACEHOLDER_TOOL_PARAMETERS);
 });
 
 test("responses: several placeholder names keep the flat shape and tool_choice auto", () => {
@@ -817,8 +818,7 @@ test("mergeClientToolsWithObserved: keeps client tools first and appends missing
     tools.map((t) => t.function.name),
     ["glob", "read", "edit"]
   );
-  // Appended entries are list entries, not callable tools.
-  assert.deepEqual(tools[2].function.parameters, { type: "object", properties: {} });
+  assert.deepEqual(tools[2].function.parameters, PLACEHOLDER_TOOL_PARAMETERS);
 });
 
 test("mergeClientToolsWithObserved: leaves the body untouched when nothing observed [free-tier-observed-tools]", () => {
