@@ -60,7 +60,10 @@ test("models route fetches live models from modelsUrl for noAuth provider with m
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url: string | URL, _init?: RequestInit) => {
     const urlStr = String(url);
-    if (urlStr === "https://opencode.ai/zen/v1/models") {
+    if (
+      urlStr === "https://opencode.ai/zen/v1/models" ||
+      urlStr === "https://opencode.ai/inference/v1/models"
+    ) {
       return Response.json({ data: LIVE_MODEL_LIST });
     }
     return new Response("unexpected fetch: " + urlStr, { status: 500 });
@@ -102,7 +105,10 @@ test("metadata-only no-auth connection row still uses public model discovery", a
   });
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url: string | URL) => {
-    if (String(url) === "https://opencode.ai/zen/v1/models") {
+    if (
+      String(url) === "https://opencode.ai/zen/v1/models" ||
+      String(url) === "https://opencode.ai/inference/v1/models"
+    ) {
       return Response.json({ data: LIVE_MODEL_LIST });
     }
     return new Response("unexpected", { status: 500 });
@@ -127,7 +133,10 @@ test("metadata-only no-auth connection row still uses public model discovery", a
 test("models route falls back to local_catalog when live modelsUrl fetch throws (#3611 fallback on error)", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url: string | URL, _init?: RequestInit) => {
-    if (String(url) === "https://opencode.ai/zen/v1/models") {
+    if (
+      String(url) === "https://opencode.ai/zen/v1/models" ||
+      String(url) === "https://opencode.ai/inference/v1/models"
+    ) {
       throw new Error("network failure");
     }
     return new Response("unexpected", { status: 500 });
@@ -151,7 +160,10 @@ test("models route falls back to local_catalog when live modelsUrl fetch throws 
 test("models route falls back to local_catalog when live modelsUrl fetch returns non-OK (#3611 fallback on non-OK)", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url: string | URL, _init?: RequestInit) => {
-    if (String(url) === "https://opencode.ai/zen/v1/models") {
+    if (
+      String(url) === "https://opencode.ai/zen/v1/models" ||
+      String(url) === "https://opencode.ai/inference/v1/models"
+    ) {
       return new Response("Service Unavailable", { status: 503 });
     }
     return new Response("unexpected", { status: 500 });

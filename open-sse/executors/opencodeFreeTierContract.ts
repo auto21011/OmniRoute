@@ -130,10 +130,11 @@ export type OpencodeSurface = "zen" | "go" | "other";
 
 const ZEN_SURFACE_BASE_URL = "https://opencode.ai/zen/v1";
 const GO_SURFACE_BASE_URL = "https://opencode.ai/zen/go/v1";
+const INFERENCE_SURFACE_BASE_URL = "https://opencode.ai/inference/v1";
 
 /** Tell the surfaces apart by registry `baseUrl`, so provider ids and aliases stay out. */
 export function surfaceFromBaseUrl(baseUrl: string | null | undefined): OpencodeSurface {
-  if (baseUrl === ZEN_SURFACE_BASE_URL) return "zen";
+  if (baseUrl === ZEN_SURFACE_BASE_URL || baseUrl === INFERENCE_SURFACE_BASE_URL) return "zen";
   if (baseUrl === GO_SURFACE_BASE_URL) return "go";
   return "other";
 }
@@ -205,7 +206,12 @@ export function configuredPlaceholderToolNames(): string[] {
   return kept;
 }
 const PLACEHOLDER_TOOL_DESCRIPTION = "This tool is currently unavailable and must not be used.";
-const PLACEHOLDER_TOOL_PARAMETERS = { type: "object", properties: {} } as const;
+export const PLACEHOLDER_TOOL_PARAMETERS = { type: "object", properties: {} } as const;
+
+export const FINGERPRINT_PROPERTY = {
+  type: "string",
+  description: "This tool is currently unavailable and must not be used.",
+} as const;
 
 function hasTools(body: Record<string, unknown>): boolean {
   return Array.isArray(body.tools) && body.tools.length > 0;
@@ -221,7 +227,7 @@ function hasTools(body: Record<string, unknown>): boolean {
 export function applyFreeTierRequestContract<T>(
   body: T,
   requestFormat: string | null,
-  placeholderNames: readonly string[] = FINGERPRINT_TOOLS
+  placeholderNames: readonly string[] = []
 ): T {
   if (!body || typeof body !== "object" || Array.isArray(body)) return body;
   const record = body as Record<string, unknown>;
@@ -234,53 +240,63 @@ export function applyFreeTierRequestContract<T>(
     return next as T;
   }
 
-  // Client-supplied tools are kept as-is on first dispatch.
-  // The official client sends tools on normal agent turns; missing tools are handled via retry.
-  if (hasTools(next)) return next as T;
+  const hadClientTools = hasTools(next);
+  const existingTools = hadClientTools ? [...(next.tools as unknown[])] : [];
+  const existingNames = new Set(clientToolNamesOf(next));
 
-  // Caller sent no tools (e.g. omni-fast, chat queries, compaction/title requests):
-  // Upstream free tier requires all four lowercase quartet tools to be declared,
-  // and tool_choice set to "none" for chat completions (or "auto" for flat responses)
-  // so the model directly answers with text and does not attempt to invoke tools.
-  const names =
-    placeholderNames && placeholderNames.length > 0 && placeholderNames[0] !== "_noop"
-      ? placeholderNames
-      : FINGERPRINT_TOOLS;
-
-  const seen = new Set<string>();
-  const out: unknown[] = [];
-
-  // Add the quartet tools (and any custom placeholder names)
-  const allNames = Array.from(new Set([...names, ...FINGERPRINT_TOOLS]));
-
-  for (const name of allNames) {
-    if (name === "_noop" || seen.has(name)) continue;
-    seen.add(name);
-    out.push(
-      isResponses
-        ? {
-            type: "function",
-            name,
-            description: PLACEHOLDER_TOOL_DESCRIPTION,
-            parameters: PLACEHOLDER_TOOL_PARAMETERS,
-          }
-        : {
-            type: "function",
-            function: {
-              name,
-              description: PLACEHOLDER_TOOL_DESCRIPTION,
-              parameters: PLACEHOLDER_TOOL_PARAMETERS,
-            },
-          }
-    );
+  if (
+    hadClientTools &&
+    (FINGERPRINT_TOOLS.every((name) => existingNames.has(name)) ||
+      existingNames.has(DEFAULT_PLACEHOLDER_TOOL_NAME)) &&
+    (!placeholderNames || placeholderNames.length === 0)
+  ) {
+    return next as T;
   }
 
-  next.tools = out;
+  let baseNames: readonly string[];
+  if (!hadClientTools) {
+    const names =
+      placeholderNames && placeholderNames.length > 0 && placeholderNames[0] !== "_noop"
+        ? placeholderNames
+        : FINGERPRINT_TOOLS;
+    baseNames = Array.from(new Set([...names, ...FINGERPRINT_TOOLS]));
+  } else {
+    baseNames =
+      placeholderNames && placeholderNames.length > 0
+        ? placeholderNames
+        : [DEFAULT_PLACEHOLDER_TOOL_NAME];
+  }
+
+  const namesToAdd = baseNames.filter((name) => !existingNames.has(name));
+
+  const placeholders = namesToAdd.map((name) => {
+    const requiresProperty = name === "bash" || name === "read";
+    const parameters = requiresProperty
+      ? { type: "object", properties: { input: FINGERPRINT_PROPERTY } }
+      : PLACEHOLDER_TOOL_PARAMETERS;
+    return isResponses
+      ? {
+          type: "function",
+          name,
+          description: PLACEHOLDER_TOOL_DESCRIPTION,
+          parameters,
+        }
+      : {
+          type: "function",
+          function: {
+            name,
+            description: PLACEHOLDER_TOOL_DESCRIPTION,
+            parameters,
+          },
+        };
+  });
+
+  next.tools = [...existingTools, ...placeholders];
 
   if (!next.tool_choice) {
     if (isResponses) {
       next.tool_choice = "auto";
-    } else {
+    } else if (!hadClientTools) {
       next.tool_choice = "none";
     }
   }

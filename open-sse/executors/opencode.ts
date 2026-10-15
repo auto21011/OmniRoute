@@ -125,6 +125,7 @@ import {
  * from `opencode-go`, which serves a different upstream (`.../zen/go/v1`).
  */
 const ZEN_BASE_URL = "https://opencode.ai/zen/v1";
+const INFERENCE_BASE_URL = "https://opencode.ai/inference/v1";
 
 /**
  * Per-account proxy configuration, persisted by NoAuthAccountCard under
@@ -1218,7 +1219,16 @@ export class OpencodeExecutor extends BaseExecutor {
     void urlIndex;
     void credentials;
 
-    const base = this.config.baseUrl;
+    let base = this.config.baseUrl;
+    const isKeyless = !credentials || (!credentials.apiKey && !credentials.accessToken);
+    if (
+      (this.provider === "opencode" ||
+        (isKeyless && !isPremiumOpencodeModel(model, this.provider))) &&
+      (base === ZEN_BASE_URL || base === INFERENCE_BASE_URL)
+    ) {
+      base = INFERENCE_BASE_URL;
+    }
+
     switch (this._requestFormat) {
       case "claude":
         return `${base}/messages`;
@@ -1237,12 +1247,16 @@ export class OpencodeExecutor extends BaseExecutor {
    * models) requires `x-api-key`, not `Authorization: Bearer` — unlike the
    * default `/chat/completions` endpoint on the same host, which accepts
    * Bearer. Scoped by baseUrl (not provider id/alias) so this only applies to
-   * the main Zen host (`opencode` / `opencode-zen`, both `https://opencode.ai/zen/v1`)
+   * the main Zen host (`opencode` / `opencode-zen`, both `https://opencode.ai/zen/v1`
+   * or `https://opencode.ai/inference/v1`)
    * and never to opencode-go, which serves Responses-format models from a
    * different upstream (`https://opencode.ai/zen/go/v1`) that expects Bearer.
    */
   private usesZenApiKeyAuth(): boolean {
-    return this._requestFormat === "openai-responses" && this.config?.baseUrl === ZEN_BASE_URL;
+    return (
+      this._requestFormat === "openai-responses" &&
+      (this.config?.baseUrl === ZEN_BASE_URL || this.config?.baseUrl === INFERENCE_BASE_URL)
+    );
   }
 
   buildHeaders(

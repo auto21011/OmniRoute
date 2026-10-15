@@ -23,6 +23,7 @@ const USER_AGENT_VERSION_RE = /opencode\/(?:[a-z]+\/)?v?(\d+)\.(\d+)/i;
 
 /** Whether a User-Agent already satisfies the upstream contract, so it must be kept. */
 export function satisfiesOpencodeUserAgentContract(userAgent: string | null | undefined): boolean {
+  if (!userAgent || /deepseek[-_]harness/i.test(userAgent)) return false;
   const match = String(userAgent || "").match(USER_AGENT_VERSION_RE);
   if (!match) return false;
   const major = Number.parseInt(match[1], 10);
@@ -107,28 +108,34 @@ function generateOpenCodeIdentifier(prefix: "ses_" | "msg_"): string {
   return `${prefix}${encodedTimestamp}${base62From(randomBytes(14), 14)}`;
 }
 
-function translateSessionId(sessionId: string, clientTool?: string): string {
-  const normalized = sessionId.trim();
-  if (OPENCODE_SESSION_PATTERN.test(normalized)) return normalized;
+const sessionSeedCache = new Map<string, string>();
+const MAX_SESSION_SEEDS = 4096;
 
-  const digest = createHash("sha256")
-    .update(`opencode\0${clientTool || "generic"}\0${normalized}`)
-    .digest();
-  const translatedSuffix = Array.from(digest.subarray(6, 20), (byte) => BASE62[byte % 62]).join("");
-  return `ses_${digest.subarray(0, 6).toString("hex")}${translatedSuffix}`;
+function sessionForSeed(seed: string): string {
+  const normalized = seed.trim();
+  if (OPENCODE_SESSION_PATTERN.test(normalized)) return normalized;
+  const cached = sessionSeedCache.get(normalized);
+  if (cached) return cached;
+  const minted = generateOpenCodeIdentifier("ses_");
+  if (sessionSeedCache.size >= MAX_SESSION_SEEDS) {
+    const oldestKey = sessionSeedCache.keys().next().value;
+    if (oldestKey !== undefined) sessionSeedCache.delete(oldestKey);
+  }
+  sessionSeedCache.set(normalized, minted);
+  return minted;
 }
 
 /**
  * Render an id in the canonical OpenCode shape (`<prefix>` + 12 hex + 14 base62).
  *
- * When a seed is provided, the result is deterministic to keep conversations on one
- * upstream session and keep prompt caching warm. When no seed is provided, a fresh
- * identifier matching the upstream client's timestamp-sequence contract is generated.
+ * When a seed is provided, the result is cached per seed to keep conversations on one
+ * upstream session and keep prompt caching warm, while ensuring the generated id matches
+ * the upstream gateway's minted timestamp-sequence contract (~(ms * 0x1000 + seq)).
  */
 function canonicalId(prefix: "ses_" | "msg_", seed?: string): string {
   if (seed) {
     if (prefix === "ses_") {
-      return translateSessionId(seed);
+      return sessionForSeed(seed);
     }
     const digest = createHash("sha256").update(`opencode\u0000${prefix}\u0000${seed}`).digest();
     return `${prefix}${digest.subarray(0, 6).toString("hex")}${base62From(digest.subarray(6), 14)}`;
@@ -142,6 +149,7 @@ function canonicalId(prefix: "ses_" | "msg_", seed?: string): string {
  */
 const OPENCODE_HEADER_KEYS = [
   "x-opencode-session",
+  "x-opencode-session-id",
   "x-opencode-request",
   "x-opencode-project",
   "x-opencode-client",
@@ -280,10 +288,13 @@ function applyCliDefaults(
     clientRequestId && OPENCODE_REQUEST_PATTERN.test(clientRequestId)
       ? clientRequestId
       : canonicalId("msg_", clientRequestId || undefined);
-  const clientSessionId = headers["x-opencode-session"]?.trim();
-  headers["x-opencode-session"] = clientSessionId
+  const clientSessionId =
+    headers["x-opencode-session"]?.trim() || headers["x-opencode-session-id"]?.trim();
+  const sessionVal = clientSessionId
     ? OPENCODE_SESSION_PATTERN.test(clientSessionId)
       ? clientSessionId
       : canonicalId("ses_", clientSessionId)
     : canonicalId("ses_", generateSessionId(sessionBody ?? null) ?? undefined);
+  headers["x-opencode-session"] = sessionVal;
+  headers["x-opencode-session-id"] = sessionVal;
 }
