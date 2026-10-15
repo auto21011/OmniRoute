@@ -1,6 +1,7 @@
 /** Explicit conversation identity, before the existing fingerprint fallback. */
 const HEADER_NAMES = [
   "x-opencode-session",
+  "x-opencode-session-id",
   "x-session-affinity",
   "x-session-id",
   "x-claude-code-session-id",
