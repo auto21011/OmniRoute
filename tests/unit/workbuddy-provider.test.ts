@@ -358,6 +358,55 @@ describe("executor wiring", () => {
     assert.equal(headers["X-IDE-Type"], "CLI");
     assert.equal(headers["X-IDE-Name"], "CLI");
   });
+
+  it("injects required conversation and request tracking headers for workbuddy", async () => {
+    const executor = await getExecutor("workbuddy");
+    const headers = executor.buildHeaders(
+      { accessToken: "oauth-token", providerSpecificData: {} },
+      true,
+      undefined,
+      "deepseek-v4.1-flash",
+      undefined,
+      {
+        model: "deepseek-v4.1-flash",
+        messages: [{ role: "user", content: "hello world" }],
+      }
+    );
+    assert.ok(headers["X-Conversation-ID"], "must attach X-Conversation-ID");
+    assert.ok(headers["X-Conversation-Request-ID"], "must attach X-Conversation-Request-ID");
+    assert.ok(headers["X-Conversation-Message-ID"], "must attach X-Conversation-Message-ID");
+    assert.ok(headers["X-Request-ID"], "must attach X-Request-ID");
+    assert.equal(headers["X-Agent-Intent"], "craft");
+    assert.equal(headers["X-IDE-Version"], "2.164.0");
+    assert.equal(headers["X-Conversation-Request-ID"], headers["X-Conversation-Message-ID"]);
+    assert.equal(headers["X-Conversation-Request-ID"], headers["X-Request-ID"]);
+  });
+
+  it("preserves client-provided conversation and request headers for workbuddy", async () => {
+    const executor = await getExecutor("workbuddy");
+    const headers = executor.buildHeaders(
+      { accessToken: "oauth-token", providerSpecificData: {} },
+      true,
+      {
+        "x-conversation-id": "custom-conv-123",
+        "x-conversation-request-id": "custom-req-456",
+        "x-conversation-message-id": "custom-msg-789",
+        "x-request-id": "custom-req-456",
+        "x-agent-intent": "custom-intent",
+        "x-ide-version": "3.0.0",
+      },
+      "deepseek-v4.1-flash"
+    );
+    assert.equal(headers["X-Conversation-ID"], "custom-conv-123");
+    assert.equal(headers["X-Conversation-Request-ID"], "custom-req-456");
+    assert.equal(headers["X-Conversation-Message-ID"], "custom-msg-789");
+    assert.equal(headers["X-Request-ID"], "custom-req-456");
+    assert.equal(headers["X-Agent-Intent"], "custom-intent");
+    assert.equal(headers["X-IDE-Version"], "3.0.0");
+    assert.equal(headers["x-conversation-id"], undefined);
+    assert.equal(headers["x-conversation-request-id"], undefined);
+    assert.equal(headers["x-conversation-message-id"], undefined);
+  });
 });
 
 describe("model discovery", () => {
@@ -655,6 +704,19 @@ describe("blast radius", () => {
     // Neither the channel string nor the message shape is rewritten for a
     // provider that never asked for it.
     assert.equal(transformed.messages[0].content, "You are Codex CLI.");
+
+    const headers = executor.buildHeaders(
+      { apiKey: "sk-test", providerSpecificData: {} },
+      true,
+      undefined,
+      "gpt-5.5",
+      undefined,
+      body
+    );
+    assert.equal(headers["X-Conversation-ID"], undefined);
+    assert.equal(headers["X-Conversation-Request-ID"], undefined);
+    assert.equal(headers["X-Conversation-Message-ID"], undefined);
+    assert.equal(headers["X-Agent-Intent"], undefined);
   });
 });
 

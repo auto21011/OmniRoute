@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
 import { setUserAgentHeader } from "./base/headers.ts";
 import { mapNvidiaGlm52ReasoningParams } from "./base/reasoningEffort.ts";
@@ -60,6 +60,8 @@ import {
   normalizeGigachatChatUrl,
 } from "@/lib/providers/validation/urlHelpers";
 import { forwardOpencodeClientHeaders } from "../utils/opencodeHeaders.ts";
+import { resolveOpencodeSessionIdentity } from "../utils/opencodeSessionIdentity.ts";
+import { generateSessionId } from "../services/sessionManager.ts";
 import { resolveZaiUrl } from "./default/zaiFormatOverride.ts";
 import { normalizePoolConfig } from "./default/poolConfig.ts";
 import { acquireNvidiaConcurrencySlot } from "./default/nvidiaConcurrencyGate.ts";
@@ -708,6 +710,62 @@ export class DefaultExecutor extends BaseExecutor {
         model,
         body,
       });
+    }
+
+    if (this.provider === "workbuddy") {
+      const findHeaderCaseInsensitive = (name: string): string | undefined => {
+        const target = name.toLowerCase();
+        if (clientHeaders) {
+          for (const [k, v] of Object.entries(clientHeaders)) {
+            if (k.toLowerCase() === target && typeof v === "string" && v.trim()) {
+              return v.trim();
+            }
+          }
+        }
+        for (const [k, v] of Object.entries(headers)) {
+          if (k.toLowerCase() === target && typeof v === "string" && v.trim()) {
+            return v.trim();
+          }
+        }
+        return undefined;
+      };
+
+      const convId =
+        findHeaderCaseInsensitive("x-conversation-id") ??
+        resolveOpencodeSessionIdentity(clientHeaders, body) ??
+        generateSessionId((body as Parameters<typeof generateSessionId>[0]) ?? null) ??
+        randomUUID();
+      const reqId =
+        findHeaderCaseInsensitive("x-conversation-request-id") ??
+        findHeaderCaseInsensitive("x-request-id") ??
+        randomUUID().replace(/-/g, "");
+      const explicitReqId = findHeaderCaseInsensitive("x-request-id") ?? reqId;
+      const msgId = findHeaderCaseInsensitive("x-conversation-message-id") ?? reqId;
+
+      for (const k of Object.keys(headers)) {
+        const lower = k.toLowerCase();
+        if (
+          (lower === "x-conversation-id" && k !== "X-Conversation-ID") ||
+          (lower === "x-conversation-request-id" && k !== "X-Conversation-Request-ID") ||
+          (lower === "x-conversation-message-id" && k !== "X-Conversation-Message-ID") ||
+          (lower === "x-request-id" && k !== "X-Request-ID") ||
+          (lower === "x-agent-intent" && k !== "X-Agent-Intent") ||
+          (lower === "x-ide-version" && k !== "X-IDE-Version")
+        ) {
+          delete headers[k];
+        }
+      }
+
+      headers["X-Conversation-ID"] = convId;
+      headers["X-Conversation-Request-ID"] = reqId;
+      headers["X-Conversation-Message-ID"] = msgId;
+      headers["X-Request-ID"] = explicitReqId;
+      if (!headers["X-Agent-Intent"]) {
+        headers["X-Agent-Intent"] = findHeaderCaseInsensitive("x-agent-intent") ?? "craft";
+      }
+      if (!headers["X-IDE-Version"]) {
+        headers["X-IDE-Version"] = findHeaderCaseInsensitive("x-ide-version") ?? "2.164.0";
+      }
     }
 
     maybeAppendSkillsBeta(headers, this.provider, body, this.usesClaudeCodeProtocol(credentials));
