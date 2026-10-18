@@ -335,8 +335,9 @@ export async function handleRoundRobinCombo({
           !(
             stickyTarget.provider &&
             rawModel &&
-            stickyTarget.connectionId &&
-            isModelLocked(stickyTarget.provider, stickyTarget.connectionId, rawModel)
+            (stickyTarget.connectionId
+              ? isModelLocked(stickyTarget.provider, stickyTarget.connectionId, rawModel)
+              : isModelLocked(stickyTarget.provider, "", rawModel))
           ) &&
           (isModelAvailable
             ? (await isModelAvailable(stickyTarget.modelStr, stickyTarget)) === true

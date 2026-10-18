@@ -187,6 +187,34 @@ describe("operator error rules", () => {
       assert.equal(fb.shouldFallback, true);
       assert.equal(fb.ruleScope, "provider_single_model");
     });
+
+    it("a 504 operator rule keyed on combo-per-model-timeout surfaces provider_single_model end to end", () => {
+      setOperatorProviderErrorRules({
+        nvidia: [
+          {
+            status: 504,
+            match: "combo-per-model-timeout",
+            scope: "provider_single_model",
+            reason: "model_capacity",
+            cooldownMs: 900_000,
+          },
+        ],
+      });
+      const fb = checkFallbackError(
+        504,
+        "Model nvidia/z-ai/glm-5.3 timed out",
+        0,
+        "z-ai/glm-5.3",
+        "nvidia",
+        null,
+        null,
+        { code: "combo_target_timeout", type: "combo_target_timeout" }
+      );
+      assert.equal(fb.shouldFallback, true);
+      assert.equal(fb.ruleScope, "provider_single_model");
+      assert.equal(fb.reason, "model_capacity");
+      assert.equal(fb.cooldownMs, 900_000);
+    });
   });
 
   describe("HTTP 400 operator rules priority over built-in patterns", () => {

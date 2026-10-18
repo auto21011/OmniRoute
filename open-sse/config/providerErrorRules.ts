@@ -17,6 +17,10 @@
  */
 
 import type { ConfiguredErrorReason } from "./errorConfig.ts";
+import {
+  COMBO_PER_MODEL_TIMEOUT_REASON,
+  COMBO_TARGET_TIMEOUT_CODE,
+} from "../services/combo/comboAbortReasons.ts";
 
 export type ProviderErrorRule = {
   id: string;
@@ -578,7 +582,15 @@ function structuredErrorCodeText(structuredError: unknown): string {
   const rec = structuredError as { code?: unknown; type?: unknown };
   const parts: string[] = [];
   for (const value of [rec.code, rec.type]) {
-    if (typeof value === "string" && value.trim().length > 0) parts.push(value.trim());
+    if (typeof value === "string" && value.trim().length > 0) {
+      const trimmed = value.trim();
+      parts.push(trimmed);
+      if (trimmed === COMBO_TARGET_TIMEOUT_CODE) {
+        parts.push(COMBO_PER_MODEL_TIMEOUT_REASON);
+      } else if (trimmed === COMBO_PER_MODEL_TIMEOUT_REASON) {
+        parts.push(COMBO_TARGET_TIMEOUT_CODE);
+      }
+    }
   }
   return parts.join(" ");
 }

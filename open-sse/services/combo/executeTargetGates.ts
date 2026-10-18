@@ -263,8 +263,9 @@ export async function evaluateExecuteTargetGates(opts: {
   if (
     provider &&
     rawModel &&
-    target.connectionId &&
-    isModelLocked(provider, target.connectionId, rawModel)
+    (target.connectionId
+      ? isModelLocked(provider, target.connectionId, rawModel)
+      : isModelLocked(provider, "", rawModel))
   ) {
     deps.log.info("COMBO", `Skipping ${modelStr} — model locked by resilience (cooldown active)`);
     recordComboDecision(deps.traceInvocationId, {

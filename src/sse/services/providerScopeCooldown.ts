@@ -117,9 +117,22 @@ export async function applyProviderSingleModelScopeLockout(args: {
     });
   }
 
+  // Also record wildcard lockout for unpinned combo targets
+  const wildcardLockout = recordModelLockoutFailure(
+    provider,
+    "",
+    model,
+    reason,
+    status,
+    fallbackCooldownMs,
+    profile,
+    lockoutOptions
+  );
+  appliedCooldownMs = wildcardLockout.cooldownMs;
+
   log.info(
     "AUTH",
-    `Provider-single-model-scoped lockout for ${provider}:${model} (${lockedCount}/${connections.length} connections) — ${status} ${reason} ${Math.ceil(appliedCooldownMs / 1000)}s (rule scope=provider_single_model)`
+    `Provider-single-model-scoped lockout for ${provider}:${model} (${lockedCount}/${connections.length} connections + wildcard) — ${status} ${reason} ${Math.ceil(appliedCooldownMs / 1000)}s (rule scope=provider_single_model)`
   );
   return { shouldFallback: true, cooldownMs: appliedCooldownMs };
 }
