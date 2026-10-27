@@ -7,11 +7,10 @@ import {
 } from "./opencodeSessionIdentity.ts";
 
 /**
- * Default synthesized User-Agent. The upstream only parses the version, so this literal
- * exists to be recent enough, not to impersonate a build: any `opencode/<>=1.17>` passes.
+ * Default synthesized User-Agent. Aligned with official OpenCode CLI v2.2.0 format.
  * Overridable through the existing OPENCODE_USER_AGENT (or <PROVIDER>_USER_AGENT) knob.
  */
-export const DEFAULT_OPENCODE_USER_AGENT = "opencode/1.18.31";
+export const DEFAULT_OPENCODE_USER_AGENT = "opencode/latest/2.2.0/cli";
 
 /** Canonical OpenCode session id shape: `ses_` + 12 hex + 14 base62. */
 export const OPENCODE_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
@@ -307,4 +306,13 @@ function applyCliDefaults(
     : canonicalId("ses_", generateSessionId(sessionBody ?? null) ?? undefined);
   headers["x-opencode-session"] = sessionVal;
   headers["x-opencode-session-id"] = sessionVal;
+  headers["x-session-affinity"] = sessionVal;
+  headers["x-session-id"] = sessionVal;
+
+  if (!headers["x-opencode-project"] || headers["x-opencode-project"] === "global") {
+    const inner = createHash("sha256").update(sessionVal).digest("hex");
+    headers["x-opencode-project"] = createHash("sha1")
+      .update(`git-remote:opencode/${inner}`)
+      .digest("hex");
+  }
 }

@@ -126,6 +126,7 @@ import {
  */
 const ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 const INFERENCE_BASE_URL = "https://opencode.ai/inference/v1";
+const INFERENCE_OPENAI_BASE_URL = "https://opencode.ai/inference/openai/v1";
 
 /**
  * Per-account proxy configuration, persisted by NoAuthAccountCard under
@@ -1255,7 +1256,9 @@ export class OpencodeExecutor extends BaseExecutor {
   private usesZenApiKeyAuth(): boolean {
     return (
       this._requestFormat === "openai-responses" &&
-      (this.config?.baseUrl === ZEN_BASE_URL || this.config?.baseUrl === INFERENCE_BASE_URL)
+      (this.config?.baseUrl === ZEN_BASE_URL ||
+        this.config?.baseUrl === INFERENCE_BASE_URL ||
+        this.config?.baseUrl === INFERENCE_OPENAI_BASE_URL)
     );
   }
 
@@ -1319,6 +1322,17 @@ export class OpencodeExecutor extends BaseExecutor {
         cliDefaults,
         sessionBody: projectOpencodeSessionBody(body),
       });
+    }
+
+    // Ensure x-opencode-request is omitted on free tier requests (v2 gate rejects requests carrying it with 403 / 429)
+    if (gatedScope) {
+      delete headers["x-opencode-request"];
+    }
+    if (headers["x-opencode-session"]) {
+      const s = headers["x-opencode-session"];
+      headers["x-opencode-session-id"] = s;
+      headers["x-session-affinity"] = s;
+      headers["x-session-id"] = s;
     }
 
     // The Muse Responses workaround that forced a UUID session here is gone: the shape it

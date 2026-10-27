@@ -5,7 +5,7 @@ export const opencodeProvider: RegistryEntry = {
   alias: "oc",
   format: "openai",
   executor: "opencode",
-  baseUrl: "https://opencode.ai/inference/v1",
+  baseUrl: "https://opencode.ai/inference/openai/v1",
   modelsUrl: "https://opencode.ai/inference/v1/models",
   authType: "apikey",
   authHeader: "Authorization",
