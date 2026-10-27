@@ -386,6 +386,8 @@ export function applyFreeTierRequestContract<T>(
   const record = body as Record<string, unknown>;
   const next: Record<string, unknown> = { ...record, stream: true };
 
+  applyFingerprintSystemPrompt(next);
+
   const isResponses = requestFormat === "openai-responses";
   const isChat = requestFormat === "openai" || requestFormat === null;
 
@@ -449,8 +451,6 @@ export function applyFreeTierRequestContract<T>(
       next.tool_choice = "none";
     }
   }
-
-  applyFingerprintSystemPrompt(next);
 
   return next as T;
 }
