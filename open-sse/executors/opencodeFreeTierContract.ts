@@ -42,6 +42,7 @@ import {
   resolvePlaceholderNames,
 } from "./opencodeToolObservation.ts";
 import { isOpencodeFreeTierRefusal } from "./opencodeGeoBlock.ts";
+import { invalidateOpencodeSession } from "../utils/opencodeHeaders.ts";
 import { sanitizeToolChoice, v2PlaceholderTool } from "../utils/opencodeFingerprintSchemas.ts";
 import {
   forgetAttempt,
@@ -504,6 +505,7 @@ export function applyFreeTierRequestContract<T>(
   const next: Record<string, unknown> = { ...record, stream: true };
   if (v2Fingerprint) sanitizeToolChoice(next);
 
+  applyFingerprintSystemPrompt(next);
   const existingNames = new Set(clientToolNamesOf(next));
   const baseNames = placeholderNames.length > 0 ? placeholderNames : [PLACEHOLDER_TOOL_NAME];
   const namesToAdd = baseNames.filter((name) => !existingNames.has(name));
@@ -539,8 +541,6 @@ export function applyFreeTierRequestContract<T>(
     ];
     return next as T;
   }
-
-  applyFingerprintSystemPrompt(next);
 
   return next as T;
 }
@@ -742,6 +742,9 @@ export function noteFreeTierOutcome(
       confirmBorrowedToolNames(attempt.provider, attempt.model, attempt.session);
     }
     return;
+  }
+  if (attempt.session) {
+    invalidateOpencodeSession(attempt.session);
   }
   if (attempt.probe) return;
   if (!attempt.borrowed) return;

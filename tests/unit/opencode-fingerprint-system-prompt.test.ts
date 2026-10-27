@@ -5,6 +5,7 @@ import {
   hasCompleteEnvBlock,
   upgradeEnvBlock,
   applyFingerprintSystemPrompt,
+  applyFreeTierRequestContract,
 } from "../../open-sse/executors/opencodeFreeTierContract.ts";
 import { parseResetCountdownMs } from "../../open-sse/config/providerErrorRules.ts";
 import { getProviderErrorRuleMatch } from "../../open-sse/config/providerErrorRules.ts";
@@ -136,4 +137,35 @@ test("invalidateOpencodeSession clears session cache without throwing", () => {
   invalidateOpencodeSession("test-seed");
   invalidateOpencodeSession();
   assert.ok(true);
+});
+
+test("applyFreeTierRequestContract injects fingerprint even when client tools trigger early return", () => {
+  const requestWithClientTools = {
+    model: "deepseek-v4.1-flash-free",
+    messages: [
+      {
+        role: "system",
+        content: "You are an AI agent powered by DeepSeek Harness.",
+      },
+      {
+        role: "user",
+        content: "hello",
+      },
+    ],
+    tools: [
+      { type: "function", function: { name: "bash" } },
+      { type: "function", function: { name: "glob" } },
+      { type: "function", function: { name: "grep" } },
+      { type: "function", function: { name: "read" } },
+    ],
+  };
+
+  const modified = applyFreeTierRequestContract(requestWithClientTools, "openai", []) as Record<
+    string,
+    unknown
+  >;
+  const messages = modified.messages as Array<Record<string, unknown>>;
+  assert.ok(messages[0].content);
+  assert.match(String(messages[0].content), /<env>/);
+  assert.match(String(messages[0].content), /Workspace root folder: \/workspace/);
 });
