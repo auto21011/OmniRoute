@@ -22,6 +22,7 @@
  * for JSON, reusing the shared event-stream parsers.
  */
 import { parseSSEToOpenAIResponse, parseSSEToResponsesOutput } from "../handlers/sseParser.ts";
+import { invalidateOpencodeSession } from "../utils/opencodeHeaders.ts";
 import {
   getObservedToolNames,
   noteRefusedBorrowedToolNames,
@@ -235,6 +236,147 @@ function hasTools(body: Record<string, unknown>): boolean {
  * (or "auto" for flat responses) so the model answers in plain text without invoking tools.
  * Idempotent.
  */
+export const OPENCODE_ENV_MARKER =
+  "<env>\n  Working directory: /workspace\n  Workspace root folder: /workspace\n</env>";
+
+const ENV_BLOCK_RE = /<env>([\s\S]*?)<\/env>/;
+const ENV_WORKDIR_RE = /Working directory:[^\n]*/i;
+const ENV_ROOT_RE = /Workspace root folder:[^\n]*/i;
+
+export function hasCompleteEnvBlock(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const match = value.match(ENV_BLOCK_RE);
+  if (!match) return false;
+  const inner = match[1];
+  return ENV_WORKDIR_RE.test(inner) && ENV_ROOT_RE.test(inner);
+}
+
+export function upgradeEnvBlock(text: string): string {
+  if (typeof text !== "string") return text;
+  return text.replace(ENV_BLOCK_RE, (block, inner) => {
+    const hasWorkdir = ENV_WORKDIR_RE.test(inner);
+    const hasRoot = ENV_ROOT_RE.test(inner);
+    if (hasWorkdir && hasRoot) return block;
+
+    let upgraded = inner;
+    if (!hasWorkdir && !hasRoot) {
+      upgraded = "\n  Working directory: /workspace\n  Workspace root folder: /workspace\n";
+    } else if (!hasRoot) {
+      upgraded = ENV_WORKDIR_RE.test(upgraded)
+        ? upgraded.replace(ENV_WORKDIR_RE, (line) => `${line}\n  Workspace root folder: /workspace`)
+        : `${upgraded.replace(/\s*$/, "")}\n  Workspace root folder: /workspace\n`;
+    } else if (!hasWorkdir) {
+      upgraded = ENV_ROOT_RE.test(upgraded)
+        ? upgraded.replace(ENV_ROOT_RE, (line) => `  Working directory: /workspace\n${line}`)
+        : `\n  Working directory: /workspace\n${upgraded}`;
+    }
+    return `<env>${upgraded}</env>`;
+  });
+}
+
+export function withEnvMarker(value: unknown): string {
+  const text = typeof value === "string" ? value : "";
+  if (hasCompleteEnvBlock(text)) return text;
+  if (ENV_BLOCK_RE.test(text)) return upgradeEnvBlock(text);
+  return text.trim() ? `${text}\n\n${OPENCODE_ENV_MARKER}` : OPENCODE_ENV_MARKER;
+}
+
+export function applyFingerprintSystemPrompt(body: unknown): void {
+  if (!body || typeof body !== "object") return;
+  const b = body as Record<string, unknown>;
+
+  if (b.system !== undefined) {
+    if (typeof b.system === "string") {
+      b.system = withEnvMarker(b.system);
+    } else if (Array.isArray(b.system)) {
+      const marked = b.system.some((block: unknown) => {
+        if (typeof block === "string") return hasCompleteEnvBlock(block);
+        if (block && typeof block === "object" && "text" in block) {
+          return hasCompleteEnvBlock((block as { text: unknown }).text);
+        }
+        return false;
+      });
+      if (!marked) {
+        let upgradedAny = false;
+        const newSystem = b.system.map((block: unknown) => {
+          if (typeof block === "string") {
+            if (ENV_BLOCK_RE.test(block)) {
+              upgradedAny = true;
+              return upgradeEnvBlock(block);
+            }
+          } else if (block && typeof block === "object" && "text" in block) {
+            const blk = block as Record<string, unknown>;
+            if (typeof blk.text === "string" && ENV_BLOCK_RE.test(blk.text)) {
+              upgradedAny = true;
+              return { ...blk, text: upgradeEnvBlock(blk.text) };
+            }
+          }
+          return block;
+        });
+
+        if (upgradedAny) {
+          b.system = newSystem;
+        } else {
+          b.system = [...b.system, { type: "text", text: OPENCODE_ENV_MARKER }];
+        }
+      }
+    }
+    return;
+  }
+
+  if (b.instructions !== undefined) {
+    if (typeof b.instructions === "string") {
+      b.instructions = withEnvMarker(b.instructions);
+    }
+    return;
+  }
+
+  if (Array.isArray(b.messages)) {
+    const first = b.messages[0] as Record<string, unknown> | undefined;
+    if (first?.role === "system") {
+      if (typeof first.content === "string") {
+        b.messages = [{ ...first, content: withEnvMarker(first.content) }, ...b.messages.slice(1)];
+        return;
+      }
+      if (Array.isArray(first.content)) {
+        const marked = first.content.some((part: unknown) => {
+          if (part && typeof part === "object" && "text" in part) {
+            return hasCompleteEnvBlock((part as { text: unknown }).text);
+          }
+          return false;
+        });
+        if (!marked) {
+          let upgradedAny = false;
+          const newContent = first.content.map((part: unknown) => {
+            if (part && typeof part === "object" && "text" in part) {
+              const p = part as Record<string, unknown>;
+              if (typeof p.text === "string" && ENV_BLOCK_RE.test(p.text)) {
+                upgradedAny = true;
+                return { ...p, text: upgradeEnvBlock(p.text) };
+              }
+            }
+            return part;
+          });
+          if (upgradedAny) {
+            b.messages = [{ ...first, content: newContent }, ...b.messages.slice(1)];
+          } else {
+            b.messages = [
+              {
+                ...first,
+                content: [...first.content, { type: "text", text: OPENCODE_ENV_MARKER }],
+              },
+              ...b.messages.slice(1),
+            ];
+          }
+        }
+        return;
+      }
+    } else {
+      b.messages = [{ role: "system", content: OPENCODE_ENV_MARKER }, ...b.messages];
+    }
+  }
+}
+
 export function applyFreeTierRequestContract<T>(
   body: T,
   requestFormat: string | null,
@@ -307,6 +449,8 @@ export function applyFreeTierRequestContract<T>(
       next.tool_choice = "none";
     }
   }
+
+  applyFingerprintSystemPrompt(next);
 
   return next as T;
 }
@@ -460,7 +604,9 @@ export function prepareFreeTierRequest<T>(
 
 function withStreaming<T>(body: T): T {
   if (!body || typeof body !== "object" || Array.isArray(body)) return body;
-  return { ...(body as Record<string, unknown>), stream: true } as T;
+  const next = { ...(body as Record<string, unknown>), stream: true };
+  applyFingerprintSystemPrompt(next);
+  return next as T;
 }
 
 /**
@@ -481,6 +627,9 @@ export function noteFreeTierOutcome(attempt: FreeTierContractAttempt | null, ok:
       );
     }
     return;
+  }
+  if (attempt.session) {
+    invalidateOpencodeSession(attempt.session);
   }
   if (attempt.probe) return;
   if (attempt.borrowed) {

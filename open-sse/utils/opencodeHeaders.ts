@@ -70,7 +70,7 @@ export function resolveOpencodeCliDefaults(
       configuredUA && (!gated || satisfiesOpencodeUserAgentContract(configuredUA))
         ? configuredUA
         : DEFAULT_OPENCODE_USER_AGENT,
-    client: process.env.OPENCODE_CLIENT?.trim() || "desktop",
+    client: process.env.OPENCODE_CLIENT?.trim() || (gated ? "cli" : "desktop"),
     project: process.env.OPENCODE_PROJECT?.trim() || "global",
   };
 }
@@ -123,6 +123,16 @@ function sessionForSeed(seed: string): string {
   }
   sessionSeedCache.set(normalized, minted);
   return minted;
+}
+
+/** Evict a cached session seed so subsequent requests mint a fresh upstream session id (fork). */
+export function invalidateOpencodeSession(seed?: string): void {
+  if (seed) {
+    const normalized = seed.trim();
+    sessionSeedCache.delete(normalized);
+  } else {
+    sessionSeedCache.clear();
+  }
 }
 
 /**
