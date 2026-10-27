@@ -1225,9 +1225,9 @@ export class OpencodeExecutor extends BaseExecutor {
     if (
       (this.provider === "opencode" ||
         (isKeyless && !isPremiumOpencodeModel(model, this.provider))) &&
-      (base === ZEN_BASE_URL || base === INFERENCE_BASE_URL)
+      (base === ZEN_BASE_URL || base === INFERENCE_BASE_URL || base === INFERENCE_OPENAI_BASE_URL)
     ) {
-      base = INFERENCE_BASE_URL;
+      base = INFERENCE_OPENAI_BASE_URL;
     }
 
     switch (this._requestFormat) {
