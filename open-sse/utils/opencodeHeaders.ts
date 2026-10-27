@@ -225,9 +225,30 @@ function translateSessionId(sessionId: string, clientTool?: string): string {
  *
  * `msg_` ids are not value-checked upstream, so they keep the plain hash render.
  */
+/**
+ * Per-seed rotation counter. Bumping it re-salts the seed hash, so the next request for
+ * that conversation mints a fresh upstream session id: a free-tier refusal pins a session
+ * to a tool shape that has gone stale, and minting a new id is the way back.
+ */
+const sessionRotation = new Map<string, number>();
+
+/** Re-mint the upstream session id for `seed` on its next use (all seeds when omitted). */
+export function invalidateOpencodeSession(seed?: string): void {
+  if (!seed) {
+    sessionRotation.clear();
+    return;
+  }
+  const normalized = seed.trim();
+  if (!normalized) return;
+  sessionRotation.set(normalized, (sessionRotation.get(normalized) ?? 0) + 1);
+}
+
 function canonicalId(prefix: "ses_" | "msg_", seed?: string): string {
+  const nonce = seed ? sessionRotation.get(seed.trim()) : undefined;
   const bytes = seed
-    ? createHash("sha256").update(`opencode\u0000${prefix}\u0000${seed}`).digest()
+    ? createHash("sha256")
+        .update(`opencode\u0000${prefix}\u0000${seed}${nonce ? `\u0000${nonce}` : ""}`)
+        .digest()
     : randomBytes(32);
   if (prefix === "ses_") {
     // Top 36 bits of hash[0:5]: bytes 0-3 plus the high nibble of byte 4, exactly as
