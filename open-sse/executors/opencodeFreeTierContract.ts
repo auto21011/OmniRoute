@@ -225,7 +225,7 @@ const GO_SURFACE_BASE_URL = "https://opencode.ai/zen/go/v1";
  * tier refuses the very same request on `/zen/v1` with 403 FreeTierError. Paid models keep
  * the registry base URL, which still serves them.
  */
-export const FREE_TIER_INFERENCE_BASE_URL = "https://opencode.ai/inference/v1";
+export const FREE_TIER_INFERENCE_BASE_URL = "https://opencode.ai/inference/openai/v1";
 
 /** Tell the surfaces apart by registry `baseUrl`, so provider ids and aliases stay out. */
 export function surfaceFromBaseUrl(baseUrl: string | null | undefined): OpencodeSurface {
