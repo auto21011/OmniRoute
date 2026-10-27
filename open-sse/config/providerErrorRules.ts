@@ -189,11 +189,18 @@ function buildOpencodeRules(): ProviderErrorRule[] {
         if (status !== 429) return null;
         const text = JSON.stringify(body ?? "").toLowerCase();
         if (
+          text.includes("freeusagelimiterror") ||
+          text.includes("free usage limit reached") ||
           text.includes("organization_quota_exceeded") ||
           text.includes("account_quota_exceeded") ||
           text.includes("plan_limit_reached")
         ) {
-          return { reason: "quota_exhausted", scope: "connection" };
+          const cooldownMs = parseResetCountdownMs(text);
+          return {
+            reason: "quota_exhausted",
+            scope: "connection",
+            ...(cooldownMs ? { cooldownMs } : {}),
+          };
         }
         return null;
       },
@@ -701,23 +708,34 @@ export function getProviderErrorRuleMatch(
  */
 export function parseResetCountdownMs(text: string): number | null {
   if (typeof text !== "string" || text.length === 0) return null;
+  const compositeMatch = text.match(/reset\s+after\s+(\d+)m(?:\s*(\d+)s)?/i);
+  if (compositeMatch) {
+    const m = Number(compositeMatch[1]) || 0;
+    const s = Number(compositeMatch[2]) || 0;
+    const total = m * 60_000 + s * 1_000;
+    if (total > 0) return total;
+  }
   const match = text.match(
-    /resets?\s+in\s+(\d+)\s+(day|days|hour|hours|minute|minutes|second|seconds)\b/
+    /(?:resets?\s+in|reset\s+after)\s+(\d+)\s*(day|days|hour|hours|minute|minutes|second|seconds|m|s|h|d)?\b/i
   );
   if (!match) return null;
   const n = Number(match[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
-  const unit = match[2];
+  const unit = (match[2] || "").toLowerCase();
   switch (unit) {
+    case "d":
     case "day":
     case "days":
       return n * 86_400_000;
+    case "h":
     case "hour":
     case "hours":
       return n * 3_600_000;
+    case "m":
     case "minute":
     case "minutes":
       return n * 60_000;
+    case "s":
     case "second":
     case "seconds":
       return n * 1_000;
