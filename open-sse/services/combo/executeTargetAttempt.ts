@@ -352,26 +352,12 @@ export async function executeTargetAttempt(
         decision: "dispatched",
       });
     }
-    let attemptSelectedConnectionId: string | undefined;
     const result = await deps.handleSingleModelWithTimeout(attemptBody, modelStr, {
       ...targetForAttempt,
       emptyTurnConnectionId,
       effectiveComboStrategy: deps.strategy,
       failoverBeforeRetry: deps.config.failoverBeforeRetry,
-      onConnectionSelected: (connId: string) => {
-        attemptSelectedConnectionId = connId;
-      },
     });
-
-    if (
-      attemptSelectedConnectionId &&
-      !result.headers?.get("X-OmniRoute-Selected-Connection-Id") &&
-      !result.headers?.get("x-omniroute-selected-connection-id")
-    ) {
-      try {
-        result.headers.set("X-OmniRoute-Selected-Connection-Id", attemptSelectedConnectionId);
-      } catch {}
-    }
 
     // Success — validate response quality before returning
     if (result.ok) {
@@ -1193,7 +1179,8 @@ export async function executeTargetAttempt(
           });
           lockoutRecorded = true;
         } else if (fallbackResult.ruleScope === "model") {
-            const ruleCooldownMs =
+          const targetConnId = targetWithConnection.connectionId || "";
+          const ruleCooldownMs =
             typeof fallbackResult.cooldownMs === "number" && fallbackResult.cooldownMs > 0
               ? fallbackResult.cooldownMs
               : mlSettings.baseCooldownMs;
@@ -1315,6 +1302,7 @@ export async function executeTargetAttempt(
           maxCooldownMs: mlSettings.maxCooldownMs,
         });
       } else if (fallbackResult.ruleScope === "model") {
+        const targetConnId = targetWithConnection.connectionId || "";
         const ruleCooldownMs =
           typeof fallbackResult.cooldownMs === "number" && fallbackResult.cooldownMs > 0
             ? fallbackResult.cooldownMs

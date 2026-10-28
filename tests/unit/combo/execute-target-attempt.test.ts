@@ -23,6 +23,7 @@ import {
 import {
   clearAllModelLockouts,
   getModelLockoutInfo,
+  isModelLocked,
 } from "../../../open-sse/services/accountFallback.ts";
 
 function emptyState(overrides: Partial<AttemptLoopState> = {}): AttemptLoopState {
@@ -1088,24 +1089,24 @@ test("a body-specific 400 stop is not a fallback", async () => {
 test("combo target timeout 504 with provider_single_model error rule locks model across connections and wildcard", async () => {
   const provider = "nvidia";
   const model = "deepseek-ai/deepseek-v4.1-flash";
-  const conn1 = "conn-nvidia-1";
-  const conn2 = "conn-nvidia-2";
 
   const { createProviderConnection } = await import("../../../src/lib/db/providers.ts");
-  await createProviderConnection({
-    id: conn1,
+  // The row id is assigned by the DB (a caller-supplied id is ignored), so the
+  // assertions below have to read it back instead of assuming one.
+  const created1 = await createProviderConnection({
     provider,
-    name: "Key 1",
+    name: `Key 1 ${Date.now()}`,
     apiKey: "key-1",
     isActive: true,
   });
-  await createProviderConnection({
-    id: conn2,
+  const created2 = await createProviderConnection({
     provider,
-    name: "Key 2",
+    name: `Key 2 ${Date.now()}`,
     apiKey: "key-2",
     isActive: true,
   });
+  const conn1 = created1?.id as string;
+  const conn2 = created2?.id as string;
 
   const { updateSettings } = await import("../../../src/lib/db/settings.ts");
   await updateSettings({

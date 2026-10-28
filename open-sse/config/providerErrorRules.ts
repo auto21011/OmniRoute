@@ -17,10 +17,8 @@
  */
 
 import type { ConfiguredErrorReason } from "./errorConfig.ts";
-import {
-  COMBO_PER_MODEL_TIMEOUT_REASON,
-  COMBO_TARGET_TIMEOUT_CODE,
-} from "../services/combo/comboAbortReasons.ts";
+import { COMBO_PER_MODEL_TIMEOUT_REASON } from "../services/combo/comboAbortReasons.ts";
+import { COMBO_TARGET_TIMEOUT_CODE } from "../services/combo/targetTimeoutRunner.ts";
 
 export type ProviderErrorRule = {
   id: string;

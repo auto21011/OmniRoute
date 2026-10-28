@@ -198,10 +198,9 @@ export function buildTargetTimeoutRunner(deps: {
           }
           const resp = errorResponse(502, err?.message ?? "Upstream model error");
           const connId =
-            selectedConnectionId ||
-            (target && "connectionId" in target && typeof target.connectionId === "string"
+            target && "connectionId" in target && typeof target.connectionId === "string"
               ? target.connectionId
-              : undefined);
+              : undefined;
           if (connId) {
             resp.headers.set("X-OmniRoute-Selected-Connection-Id", connId);
           }
@@ -218,10 +217,9 @@ export function buildTargetTimeoutRunner(deps: {
         );
         const resp = errorResponse(502, `Combo timeout dispatch error: ${detail}`);
         const connId =
-          selectedConnectionId ||
-          (target && "connectionId" in target && typeof target.connectionId === "string"
+          target && "connectionId" in target && typeof target.connectionId === "string"
             ? target.connectionId
-            : undefined);
+            : undefined;
         if (connId) {
           resp.headers.set("X-OmniRoute-Selected-Connection-Id", connId);
         }
