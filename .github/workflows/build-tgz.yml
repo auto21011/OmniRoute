@@ -24,12 +24,16 @@ jobs:
           sudo apt-get clean
           df -h /
 
-      # No swapfile: with a 12 GB V8 heap on a 16 GB runner the kernel swapped hard
-      # during page-data collection, the build crawled for 50+ minutes and the runner
-      # was killed with no log. The heap is capped below RAM instead (see the build
-      # step), so nothing should ever need to swap.
-      - name: Show runner resources
+      # 4 GB of swap as a safety net for the webpack pass (see the build step for why
+      # the bundler matters here). More than that only thrashes on a 4-core runner.
+      - name: Expand Virtual Memory (4GB Swap)
         run: |
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile /swapfile
+          sudo fallocate -l 4G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=4096
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
           free -h
           df -h /
           nproc
@@ -51,9 +55,14 @@ jobs:
       - name: Build Next.js app & CLI bundle
         run: npm run build:release
         env:
-          NODE_OPTIONS: "--max-old-space-size=6144"
-          OMNIROUTE_BUILD_MEMORY_MB: "6144"
-          OMNIROUTE_USE_TURBOPACK: "1"
+          # Turbopack's allocator lives outside the V8 heap, so --max-old-space-size
+          # cannot bound it: on a 16 GB runner it OOM-kills the job mid-compile
+          # ("The operation was canceled." ~7 min in, no log). Webpack's peak *is*
+          # bounded by the heap flag, so the documented memory-constrained path is
+          # the one that survives here (scripts/build/build-next-isolated.mjs:140).
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          OMNIROUTE_BUILD_MEMORY_MB: "8192"
+          OMNIROUTE_USE_TURBOPACK: "0"
 
       - name: Pack TGZ
         run: npm pack
