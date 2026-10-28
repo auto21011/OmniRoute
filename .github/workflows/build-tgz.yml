@@ -15,15 +15,25 @@ jobs:
     name: Build and Pack TGZ
     runs-on: ubuntu-latest
     steps:
-      - name: Expand Virtual Memory (10GB Swap)
+      # The hosted image ships ~30 GB of toolchains this build never uses; without
+      # freeing them the 4 GB swapfile below plus node_modules (~4.3 GB), .next and
+      # dist leave the runner short on disk and the job dies mid-build with no log.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Expand Virtual Memory (4GB Swap)
         run: |
           sudo swapoff -a || true
           sudo rm -f /mnt/swapfile /swapfile
-          sudo fallocate -l 10G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=10240
+          sudo fallocate -l 4G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=4096
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
           free -h
+          df -h /
 
       - name: Checkout repository
         uses: actions/checkout@v4
