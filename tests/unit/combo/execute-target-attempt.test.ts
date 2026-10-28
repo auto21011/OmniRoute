@@ -855,7 +855,6 @@ test("quality family recovery does not silently cross a model version", async ()
   assert.ok(seen.every((model) => model === "anthropic/claude-opus-5-5"));
 });
 
-<<<<<<< HEAD
 /**
  * Fallback counting. `state.fallbackCount` is the per-set-try number of ordered
  * targets abandoned before the one that serves the request: it is snapshotted
@@ -1084,10 +1083,6 @@ test("a body-specific 400 stop is not a fallback", async () => {
   assert.equal(result?.ok, false);
   assert.equal(result?.response?.status, 400);
   assert.equal(state.fallbackCount, 0, "stopping the combo is not a fallback");
-=======
-  assert.equal(isModelLocked(provider, connectionId, model), true);
-  assert.equal(isModelLocked(provider, "", model), false);
->>>>>>> 5ff6f9b97 (fix(combo): restore connection-scoped model lockout and sequential fallback)
 });
 
 test("combo target timeout 504 with provider_single_model error rule locks model across connections and wildcard", async () => {
