@@ -3,7 +3,8 @@ import { isProxyRegistryStatusAlive } from "@/lib/db/proxies/guards";
 import { isRelayProxyType, extractRelayAuth } from "@/lib/db/proxies/mappers";
 
 /**
- * #5217 (Gap 1) — Per-account proxy resolution for no-auth providers.
+ * #5217 (Gap 1) — Per-account proxy resolution for no-auth providers
+ * ("OpenCode Free", MiMoCode, …).
  *
  * The NoAuthAccountCard now stores a proxy *reference* (by id) per account so a
  * single edit to a Proxy Pool entry applies to every account that references it,

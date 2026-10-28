@@ -51,6 +51,7 @@ tehtävän kyvykkyyssuodattimen vaatimukset (kuvat, JSON-tila, työkalut, enimm�
 | Palveluntarjoaja | Ilmainen kiintiö / krediitit                   |
 | ---------------- | ---------------------------------------------- |
 | Kiro AI          | Ilmainen Claude-taso (avokätinen kohtuukäyttö) |
+| OpenCode Free    | Ei tunnistautumista, avokätiset käyttörajat    |
 | Qoder            | Ilmainen OAuth                                 |
 | Google Vertex AI | $300 krediittejä uusille tileille              |
 | Amazon Q         | Ilmainen taso AWS-käyttäjille                  |

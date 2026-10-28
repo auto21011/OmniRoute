@@ -53,6 +53,7 @@ nástroje, maximální kontext).
 | Poskytovatel     | Bezplatná kvóta / kredity                       |
 | ---------------- | ----------------------------------------------- |
 | Kiro AI          | Bezplatná úroveň Claude (štědré férové využití) |
+| OpenCode Free    | Bez ověření, štědré limity požadavků            |
 | Qoder            | Bezplatné OAuth                                 |
 | Google Vertex AI | Kredity $300 pro nové účty                      |
 | Amazon Q         | Bezplatná úroveň pro uživatele AWS              |

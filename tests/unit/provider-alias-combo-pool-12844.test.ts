@@ -21,7 +21,7 @@ const { registerQuotaFetcher } = await import("../../open-sse/services/quotaPref
 const noOpLog = { info() {}, debug() {}, warn() {}, error() {} };
 
 // Quota is deterministic and never contacts an upstream in these routing tests.
-for (const provider of ["antigravity", "agy", "gemini"])
+for (const provider of ["antigravity", "agy", "opencode", "opencode-zen", "gemini"])
   registerQuotaFetcher(provider, async () => ({ used: 0, total: 100, percentUsed: 0 }));
 
 test.after(() => {
@@ -59,6 +59,8 @@ function target(provider: string, allowedConnectionIds?: string[]): ResolvedComb
 for (const [stored, requested] of [
   ["agy", "antigravity"],
   ["antigravity", "agy"],
+  ["opencode", "opencode-zen"],
+  ["opencode-zen", "opencode"],
 ]) {
   test(`#12844 ${stored} account is visible to ${requested} direct, auto and affinity routing`, async () => {
     const connection = await seed(stored, `${stored}-only`);

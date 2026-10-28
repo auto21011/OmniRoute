@@ -245,10 +245,10 @@ export function findModelName(aliasOrId: string, modelId: string): string {
 // OpenCode's Muse Spark family is Responses-only. Keep this rule provider-scoped
 // and version-agnostic so a newly published Muse Spark model is routed correctly
 // before the static catalog is refreshed.
-const OPENCODE_MUSE_SPARK_ALIASES = new Set(["opencode-zen", "opencode-go"]);
+const OPENCODE_MUSE_SPARK_ALIASES = new Set(["oc", "opencode-zen", "opencode-go"]);
 const MUSE_SPARK_MODEL_PATTERN = /^muse-spark(?:-|$)/i;
 
-const OPENCODE_MODEL_PREFIXES = ["opencode/", "opencode-zen/", "opencode-go/"] as const;
+const OPENCODE_MODEL_PREFIXES = ["opencode/", "oc/", "opencode-zen/", "opencode-go/"] as const;
 
 /**
  * OpenCode Zen's Responses endpoint accepts the upstream model id only. The

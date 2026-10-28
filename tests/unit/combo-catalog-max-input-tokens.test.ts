@@ -34,8 +34,9 @@ describe("Combo catalog max_input_tokens and provider prefix stripping", () => {
   it("prefixRoutesToCanonicalProvider recognizes aliases resolving to their canonical provider (#13994)", () => {
     // "opencode" routes to canonical "opencode-zen" -- only the alias-aware
     // variant used by the combo prefix-stripping path recognizes this.
-    assert.equal(prefixRoutesToCanonicalProvider("opencode", "opencode-zen"), true);
-    assert.equal(prefixRoutesToCanonicalProvider("opencode-zen", "opencode-zen"), true);
+    assert.equal(prefixRoutesToCanonicalProvider("opencode", "opencode"), true);
+    assert.equal(prefixRoutesToCanonicalProvider("oc", "opencode"), true);
+    assert.equal(prefixRoutesToCanonicalProvider("opencode-zen", "opencode"), true);
     // unrelated prefix does not route to openrouter
     assert.equal(prefixRoutesToCanonicalProvider("nvidia", "openrouter"), false);
   });
@@ -53,8 +54,6 @@ describe("Combo catalog max_input_tokens and provider prefix stripping", () => {
 
   it("getComboTargetModelId strips opencode/ prefix from target model string", () => {
     const maps = buildAliasMaps();
-    // A combo step stored with the legacy `opencode` provider id (the removed keyless
-    // provider) still resolves to opencode-zen through the manual `opencode/` override.
     const resolved = getComboTargetModelId(maps, {
       providerId: "opencode",
       modelStr: "opencode/nemotron-3-ultra-free",
@@ -67,7 +66,7 @@ describe("Combo catalog max_input_tokens and provider prefix stripping", () => {
 
   it("builds combo metadata with 1M max_input_tokens for 1M targets and explicit context", async () => {
     await providersDb.createProviderConnection({
-      provider: "opencode-zen",
+      provider: "opencode",
       authType: "apikey",
       name: "opencode-test-conn",
       apiKey: "opencode-test-key",
@@ -83,7 +82,7 @@ describe("Combo catalog max_input_tokens and provider prefix stripping", () => {
       models: [
         {
           model: "opencode/nemotron-3-ultra-free",
-          providerId: "opencode-zen",
+          providerId: "opencode",
         },
       ],
     });
@@ -115,7 +114,7 @@ describe("Combo catalog max_input_tokens and provider prefix stripping", () => {
       models: [
         {
           model: "opencode/nemotron-3-ultra-free",
-          providerId: "opencode-zen",
+          providerId: "opencode",
         },
       ],
     });

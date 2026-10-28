@@ -85,6 +85,8 @@ const HERMES_ROLES: Role[] = [
   },
 ];
 
+const HERMES_AGENT_ZERO_CONFIG_PROVIDERS = ["opencode"];
+
 export default function HermesAgentToolCard({
   tool,
   isExpanded = false,
@@ -615,6 +617,7 @@ export default function HermesAgentToolCard({
         }}
         showCombos={true}
         activeProviders={activeProviders}
+        alwaysIncludeProviders={HERMES_AGENT_ZERO_CONFIG_PROVIDERS}
         modelAliases={modelAliases}
       />
     </Card>

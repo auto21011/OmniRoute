@@ -14,20 +14,18 @@ import {
 // `/chat/completions` while chatCore's own (correctly aliased) request translation
 // had already switched the request BODY to the Responses API shape (`input:[...]`).
 // Upstream received a Responses-shaped body at the Chat Completions endpoint and
-// returned a degenerate empty response. The keyless `opencode`/`oc` pair was
-// removed (docs/reference/REMOVED_PROVIDERS.md); the format resolution and the
-// URL selection stay pinned here through opencode-zen.
+// returned a degenerate empty response.
 
 test("resolveOpencodeTargetFormat resolves the registry entry via the provider alias, not the raw id", () => {
   assert.equal(
-    resolveOpencodeTargetFormat("opencode-zen", "muse-spark-1.2-contributor-free"),
+    resolveOpencodeTargetFormat("opencode", "muse-spark-1.2-contributor-free"),
     "openai-responses"
   );
-  assert.equal(resolveOpencodeTargetFormat("opencode-zen", "muse-spark-1.2"), "openai-responses");
+  assert.equal(resolveOpencodeTargetFormat("opencode", "muse-spark-1.2"), "openai-responses");
 });
 
 test("resolveOpencodeTargetFormat falls back to 'openai' for a model with no registry targetFormat", () => {
-  assert.equal(resolveOpencodeTargetFormat("opencode-zen", "hy3-free"), "openai");
+  assert.equal(resolveOpencodeTargetFormat("opencode", "hy3-free"), "openai");
 });
 
 test("resolveOpencodeTargetFormat falls back to 'openai' for an unknown provider (no alias, no direct match)", () => {
@@ -35,10 +33,10 @@ test("resolveOpencodeTargetFormat falls back to 'openai' for an unknown provider
 });
 
 test("OpencodeExecutor.buildUrl uses /responses once _requestFormat is resolved through the alias (live-bug repro)", () => {
-  const executor = new OpencodeExecutor("opencode-zen");
+  const executor = new OpencodeExecutor("opencode");
   // Mirrors the first line of execute() — see #11045.
   (executor as unknown as { _requestFormat: string })._requestFormat = resolveOpencodeTargetFormat(
-    "opencode-zen",
+    "opencode",
     "muse-spark-1.2-contributor-free"
   );
   const url = executor.buildUrl("muse-spark-1.2-contributor-free", true);

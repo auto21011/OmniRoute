@@ -89,9 +89,7 @@ test("2026-06-17 refresh: discontinued providers dropped, new free providers add
   }
   assert.equal(providers.has("qwen-web"), false, "retired qwen-web must stay out of routing");
   // discovered in the refresh — must be present
-  // opencode-zen's free rows were dropped with the OpenCode Free removal
-  // (docs/reference/REMOVED_PROVIDERS.md): the free models only work from the OpenCode client.
-  for (const fresh of ["kilo-gateway", "glm-cn"]) {
+  for (const fresh of ["kilo-gateway", "opencode-zen", "glm-cn"]) {
     assert.ok(providers.has(fresh), `${fresh} should be added`);
   }
 });

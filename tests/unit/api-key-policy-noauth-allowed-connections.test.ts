@@ -3,7 +3,7 @@
  *
  * TDD regression test: an API key pinned via `allowedConnections` to a specific
  * connection must NOT receive synthetic no-auth credentials for free providers
- * (e.g. DuckDuckGo AI Chat).
+ * (e.g. OpenCode Free).
  */
 
 import test from "node:test";
@@ -30,31 +30,31 @@ test.after(() => {
   } catch {}
 });
 
-test("#9057 LAYER1: restricted key gets NO synthetic credentials for DuckDuckGo AI Chat", async () => {
+test("#9057 LAYER1: restricted key gets NO synthetic credentials for OpenCode Free", async () => {
   // LAYER1: getProviderCredentials() with explicit allowedConnections
   // must NOT return synthetic noauth credentials because the synthetic
   // "noauth" connection is never in an explicit allowed-connections list.
   const creds = await getProviderCredentials(
-    "duckduckgo-web",
+    "opencode",
     null,
     [RESTRICTED_CONNECTION_UUID], // allowedConnections restricts to a real UUID
-    "gpt-4o-mini"
+    "big-pickle"
   );
   assert.equal(
     creds,
     null,
-    "DuckDuckGo AI Chat must not leak synthetic credentials for a connection-restricted key"
+    "OpenCode Free must not leak synthetic credentials for a connection-restricted key"
   );
 });
 
-test("#9057 LAYER1: unrestricted key still gets synthetic credentials for DuckDuckGo AI Chat", async () => {
+test("#9057 LAYER1: unrestricted key still gets synthetic credentials for OpenCode Free", async () => {
   const creds = await getProviderCredentials(
-    "duckduckgo-web",
+    "opencode",
     null,
     null, // allowedConnections=null means unrestricted
-    "gpt-4o-mini"
+    "big-pickle"
   );
-  assert(creds, "unrestricted key must receive synthetic credentials for DuckDuckGo AI Chat");
+  assert(creds, "unrestricted key must receive synthetic credentials for OpenCode Free");
   assert.equal(
     (creds as Record<string, unknown>)?.connectionId,
     "noauth",
@@ -65,19 +65,19 @@ test("#9057 LAYER1: unrestricted key still gets synthetic credentials for DuckDu
 // The auto combo pins keyless targets to the synthetic connection id, and
 // pin-fail-closed turns that pin into the allowlist ["noauth"]. An allowlist
 // that explicitly names the synthetic id must still receive it — otherwise
-// every keyless target of a fresh install is skipped as "availability".
+// every OpenCode Free target of a fresh install is skipped as "availability".
 test("#9057 LAYER1: allowlist that names the synthetic noauth id still gets credentials", async () => {
-  const creds = await getProviderCredentials("duckduckgo-web", null, ["noauth"], "gpt-4o-mini");
+  const creds = await getProviderCredentials("opencode", null, ["noauth"], "big-pickle");
   assert(creds, "a combo pin to the synthetic noauth connection must resolve");
   assert.equal((creds as Record<string, unknown>)?.connectionId, "noauth");
 });
 
 test("#9057 LAYER1: allowlist mixing a real UUID and noauth still gets synthetic credentials", async () => {
   const creds = await getProviderCredentials(
-    "duckduckgo-web",
+    "opencode",
     null,
     [RESTRICTED_CONNECTION_UUID, "noauth"],
-    "gpt-4o-mini"
+    "big-pickle"
   );
   assert.equal((creds as Record<string, unknown>)?.connectionId, "noauth");
 });

@@ -176,11 +176,11 @@ test("v1 models catalog includes display names by default", async () => {
     new Request("http://localhost/api/v1/models")
   );
   const body = (await response.json()) as any;
-  const model = body.data.find((item) => item.id === "unc/turboderp/Qwen3.8-27B-exl3");
+  const model = body.data.find((item) => item.id === "oc/big-pickle");
 
   assert.equal(response.status, 200);
   assert.ok(model);
-  assert.equal(model.name, "Qwen3.8 27B exl3 (🆓 Free)");
+  assert.equal(model.name, "Big Pickle");
 });
 
 test("v1 models catalog omits display names when the feature flag is disabled", async () => {
@@ -191,12 +191,12 @@ test("v1 models catalog omits display names when the feature flag is disabled", 
       new Request("http://localhost/api/v1/models")
     );
     const body = (await response.json()) as any;
-    const model = body.data.find((item) => item.id === "unc/turboderp/Qwen3.8-27B-exl3");
+    const model = body.data.find((item) => item.id === "oc/big-pickle");
 
     assert.equal(response.status, 200);
     assert.ok(model);
     assert.equal("name" in model, false);
-    assert.equal(model.root, "turboderp/Qwen3.8-27B-exl3");
+    assert.equal(model.root, "big-pickle");
   } finally {
     featureFlagsDb.removeFeatureFlagOverride("MODEL_CATALOG_INCLUDE_NAMES");
   }
@@ -1601,7 +1601,7 @@ test("v1 models catalog computes combo context_length from known targets when so
   );
 });
 
-// Regression test for Issue #2798: noAuth providers (e.g. uncloseai/unc) have no DB connection rows
+// Regression test for Issue #2798: noAuth providers (opencode/oc) have no DB connection rows
 // but their models must still appear in /v1/models.
 test("v1 models catalog includes noAuth provider models when no DB connections exist (#2798)", async () => {
   // No connections seeded — empty DB, simulating a fresh install with no credentials added.
@@ -1612,21 +1612,21 @@ test("v1 models catalog includes noAuth provider models when no DB connections e
   const ids: string[] = body.data.map((item: any) => item.id);
 
   assert.equal(response.status, 200);
-  // noAuth models must surface even with zero connection rows, under the
-  // provider alias (e.g. "unc/<model>").
+  // opencode (noAuth) models must surface even with zero connection rows.
+  // The registry defines models under alias "oc" (e.g. "oc/big-pickle").
   assert.ok(
-    ids.some((id) => id.startsWith("unc/")),
-    `Expected at least one unc/* model in /v1/models but got none. IDs sample: ${ids.slice(0, 10).join(", ")}`
+    ids.some((id) => id.startsWith("oc/")),
+    `Expected at least one oc/* model in /v1/models but got none. IDs sample: ${ids.slice(0, 10).join(", ")}`
   );
   assert.equal(
-    ids.some((id) => id.startsWith("oc/")),
+    ids.some((id) => id.startsWith("opencode/")),
     false,
-    "the removed keyless OpenCode provider must not publish oc/* models"
+    "catalog must not return opencode/* noAuth aliases because opencode/ routes to opencode-zen"
   );
 });
 
 test("v1 models catalog hides disabled noAuth provider models", async () => {
-  await settingsDb.updateSettings({ blockedProviders: ["uncloseai", "duckduckgo-web"] });
+  await settingsDb.updateSettings({ blockedProviders: ["opencode", "duckduckgo-web"] });
 
   const response = await v1ModelsCatalog.getUnifiedModelsResponse(
     new Request("http://localhost/api/v1/models")
@@ -1636,9 +1636,9 @@ test("v1 models catalog hides disabled noAuth provider models", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(
-    ids.some((id) => id.startsWith("unc/")),
+    ids.some((id) => id.startsWith("oc/")),
     false,
-    "UncloseAI no-auth models must be hidden while no-auth providers are disabled"
+    "OpenCode no-auth models must be hidden while no-auth providers are disabled"
   );
   assert.equal(
     ids.some((id) => id.startsWith("ddgw/")),

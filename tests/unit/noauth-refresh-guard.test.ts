@@ -2,7 +2,7 @@
 /**
  * A 401/403 from a provider that has no token to refresh must not start a refresh.
  *
- * A no-auth provider connection carries no credentials, so every refresh attempt
+ * The no-auth OpenCode connection carries no credentials, so every refresh attempt
  * fails after three retries (several seconds), and five failures open the
  * provider-wide refresh breaker for 30 minutes with "needs re-authentication". A
  * refusal that is scoped to the request (same verdict from every account) never
@@ -84,16 +84,11 @@ async function refreshAttemptsFor({ provider, model, credentials, status, body }
 }
 
 test("a request-scoped refusal on the no-auth connection starts no refresh", async () => {
-  const credentials = await auth.getProviderCredentials(
-    "uncloseai",
-    null,
-    null,
-    "Lorbus/Qwen3.6-27B-int4-AutoRound"
-  );
+  const credentials = await auth.getProviderCredentials("opencode", null, null, "big-pickle");
   assert.equal(credentials?.connectionId, "noauth");
   const attempts = await refreshAttemptsFor({
-    provider: "uncloseai",
-    model: "Lorbus/Qwen3.6-27B-int4-AutoRound",
+    provider: "opencode",
+    model: "big-pickle",
     credentials,
     status: 403,
     body: REFUSAL_BODY,
@@ -102,16 +97,10 @@ test("a request-scoped refusal on the no-auth connection starts no refresh", asy
 });
 
 test("a plain 401 on the no-auth connection starts no refresh (nothing to refresh)", async () => {
-  const credentials = await auth.getProviderCredentials(
-    "uncloseai",
-    null,
-    null,
-    "Lorbus/Qwen3.6-27B-int4-AutoRound"
-  );
-  assert.equal(credentials?.connectionId, "noauth");
+  const credentials = await auth.getProviderCredentials("opencode", null, null, "big-pickle");
   const attempts = await refreshAttemptsFor({
-    provider: "uncloseai",
-    model: "Lorbus/Qwen3.6-27B-int4-AutoRound",
+    provider: "opencode",
+    model: "big-pickle",
     credentials,
     status: 401,
     body: AUTH_BODY,

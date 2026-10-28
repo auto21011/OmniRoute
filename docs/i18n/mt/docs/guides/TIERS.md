@@ -54,6 +54,7 @@ OAuth ta' kuljum.
 | Fornitur         | Kwota bla ħlas / krediti                  |
 | ---------------- | ----------------------------------------- |
 | Kiro AI          | Livell Claude bla ħlas (użu ġust ġeneruż) |
+| OpenCode Free    | Mingħajr awtentikazzjoni, limiti ġenerużi |
 | Qoder            | OAuth bla ħlas                            |
 | Google Vertex AI | $300 fi krediti għal kontijiet ġodda      |
 | Amazon Q         | Livell bla ħlas għall-utenti ta' AWS      |

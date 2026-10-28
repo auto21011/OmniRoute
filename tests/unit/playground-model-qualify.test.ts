@@ -38,13 +38,10 @@ test("provider playground uses native Responses for both ChatGPT Web Codex prefi
   assert.equal(resolveLlmPlaygroundEndpoint("openai/gpt-5"), "/api/v1/chat/completions");
 });
 
-test("a no-auth provider playground uses its routing alias instead of the provider id", async () => {
+test("OpenCode Free playground uses its routing alias instead of the reserved provider id", async () => {
   const { getProviderAlias } = await import("../../src/shared/constants/providers.ts");
-  assert.equal(getProviderAlias("uncloseai"), "unc");
-  assert.equal(
-    qualifyPlaygroundModel("some-model", getProviderAlias("uncloseai")),
-    "unc/some-model"
-  );
+  assert.equal(getProviderAlias("opencode"), "oc");
+  assert.equal(qualifyPlaygroundModel("big-pickle", getProviderAlias("opencode")), "oc/big-pickle");
 });
 
 test("qualifyPlaygroundModel inserts the provider after the no-think prefix, not before it", () => {

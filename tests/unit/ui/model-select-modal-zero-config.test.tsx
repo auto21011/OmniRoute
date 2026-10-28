@@ -65,24 +65,24 @@ afterEach(() => {
 });
 
 describe("ModelSelectModal zero-config providers", () => {
-  it("shows a no-auth provider's models when explicitly included without an active connection", async () => {
-    const container = await renderModal({ alwaysIncludeProviders: ["duckduckgo-web"] });
+  it("shows OpenCode Free models when explicitly included without an active connection", async () => {
+    const container = await renderModal({ alwaysIncludeProviders: ["opencode"] });
 
-    expect(container.textContent).toContain("DuckDuckGo AI Chat");
-    expect(container.textContent).toContain("GPT-5.4 Mini");
+    expect(container.textContent).toContain("OpenCode Free");
+    expect(container.textContent).toContain("Big Pickle");
   });
 
-  it("does not show a no-auth provider by default without an active connection", async () => {
+  it("does not show OpenCode Free by default without an active connection", async () => {
     const container = await renderModal();
 
-    expect(container.textContent).not.toContain("DuckDuckGo AI Chat");
-    expect(container.textContent).not.toContain("GPT-5.4 Mini");
+    expect(container.textContent).not.toContain("OpenCode Free");
+    expect(container.textContent).not.toContain("Big Pickle");
   });
 
   it("treats null explicit provider lists as empty", async () => {
     const container = await renderModal({ alwaysIncludeProviders: null });
 
-    expect(container.textContent).not.toContain("DuckDuckGo AI Chat");
-    expect(container.textContent).not.toContain("GPT-5.4 Mini");
+    expect(container.textContent).not.toContain("OpenCode Free");
+    expect(container.textContent).not.toContain("Big Pickle");
   });
 });

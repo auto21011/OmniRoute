@@ -243,12 +243,12 @@ export function invalidateOpencodeQuotaCache(connectionId: string): void {
 
 /**
  * Register the OpenCode quota fetcher with the preflight and monitor systems
- * for both provider variants: opencode-go, opencode-zen.
+ * for all three provider variants: opencode-go, opencode, opencode-zen.
  *
  * Call this once at server startup (in chat.ts, before registerGenericQuotaFetchers).
  */
 export function registerOpencodeQuotaFetcher(): void {
-  for (const provider of ["opencode-go", "opencode-zen"] as const) {
+  for (const provider of ["opencode-go", "opencode", "opencode-zen"] as const) {
     registerQuotaFetcher(provider, fetchOpencodeQuota);
     registerQuotaCacheInvalidator(provider, invalidateOpencodeQuotaCache);
     registerMonitorFetcher(provider, fetchOpencodeQuota);

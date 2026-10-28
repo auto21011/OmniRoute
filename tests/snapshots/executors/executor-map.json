@@ -490,6 +490,11 @@
       "configSource": "oneminai",
       "provider": "oneminai"
     },
+    "opencode": {
+      "className": "OpencodeExecutor",
+      "configSource": "opencode-zen",
+      "provider": "opencode-zen"
+    },
     "opencode-go": {
       "className": "OpencodeExecutor",
       "configSource": "opencode-go",
@@ -701,6 +706,6 @@
       "provider": "zai-web"
     }
   },
-  "keyCount": 140,
+  "keyCount": 141,
   "sharedInstances": []
 }

@@ -53,6 +53,7 @@ export const USAGE_FETCHER_PROVIDERS = [
   "deepseek",
   "moonshot",
   "kimi",
+  "opencode",
   "opencode-zen",
   "xiaomi-mimo",
   "xiaomi-mimo-token-plan",

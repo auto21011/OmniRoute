@@ -8,43 +8,50 @@
 
 ---
 
-## Mtoa Huduma ni Nini?
+## Mtoa Huduma Ni Nini?
 
-Fikiria mtoa huduma kama **kampuni ya simu**. Kama vile unavyohitaji kampuni ya simu ili kupiga simu, unahitaji mtoa huduma wa AI ili kutumia modeli za AI. OmniRoute ni kama simu inayofanya kazi na **kampuni zote za simu** — unaweza kubadili kutoka moja hadi nyingine kiotomatiki.
+Fikiria mtoa huduma kama **kampuni ya simu**. Kama vile unavyohitaji kampuni ya simu ili kupiga simu, unahitaji mtoa huduma wa AI ili kutumia modeli za AI. OmniRoute ni kama simu inayofanya kazi na **kampuni zote** — unaweza kubadilisha kati yao kiotomatiki.
 
 ### Aina za Watoa Huduma
 
-| Aina            | Maana Yake                          | Mifano                          | Gharama                    |
-| --------------- | ----------------------------------- | ------------------------------- | -------------------------- |
-| **Bila Malipo** | Hakuna malipo yanayohitajika        | Kiro, Pollinations              | $0                         |
-| **API Key**     | Unahitaji API key                   | OpenAI, Anthropic, Google       | Lipa kulingana na matumizi |
-| **OAuth**       | Ingia ukitumia akaunti yako         | Claude Code, GitHub Copilot     | Ada ya usajili             |
-| **Web Cookie**  | Hutumia kipindi cha kivinjari chako | ChatGPT Web (Codex), Gemini Web | $0 (hutumia akaunti yako)  |
+| Aina                    | Maana Yake                          | Mifano                            | Gharama                    |
+| ----------------------- | ----------------------------------- | --------------------------------- | -------------------------- |
+| **Bila Malipo**         | Hakuna malipo yanayohitajika        | Kiro, OpenCode Free, Pollinations | $0                         |
+| **Ufunguo wa API**      | Unahitaji ufunguo wa API            | OpenAI, Anthropic, Google         | Lipa kulingana na matumizi |
+| **OAuth**               | Ingia ukitumia akaunti yako         | Claude Code, GitHub Copilot       | Usajili                    |
+| **Kidakuzi cha Wavuti** | Hutumia kipindi cha kivinjari chako | ChatGPT Web (Codex), Gemini Web   | $0 (hutumia akaunti yako)  |
 
-### Watoa Huduma wa Web Cookie
+### Watoa Huduma wa Kidakuzi cha Wavuti
 
-Tazama **[WEB-COOKIE-GUIDE.md](./WEB-COOKIE-GUIDE.md)** kwa maagizo ya jumla ya usanidi, vikwazo, utatuzi wa matatizo, na mwongozo wa uthibitishaji unaohusu kila mtoa huduma.
+Angalia **[WEB-COOKIE-GUIDE.md](./WEB-COOKIE-GUIDE.md)** kwa maelekezo ya jumla ya usanidi, vikwazo, utatuzi wa matatizo na mwongozo wa uthibitishaji unaomhusu kila mtoa huduma.
 ---
 
-## Kuanza Haraka: Unganisha Mtoa Huduma Wako wa Kwanza
+## Mwanzo wa Haraka: Unganisha Mtoa Huduma Wako wa Kwanza
 
-### Usanidi wa hiari wa watoa huduma bila malipo wakati wa uendeshaji wa kwanza
+### Usanidi wa hiari wa watoa huduma wasiolipishwa wakati wa matumizi ya kwanza
 
-Msaidizi wa usanidi wa uendeshaji wa kwanza hutoa kadi ya wazi ya **Sanidi watoa huduma bila malipo**. Hupata orodha ya sasa ya wanaostahiki kutoka kwenye sajili ya watoa huduma ya OmniRoute isiyohitaji uthibitishaji, kisha hukuruhusu kukagua na kuondoa uteuzi wa kila mtoa huduma kabla ya kuthibitisha. OmniRoute huonyesha ilani ya tahadhari ya mtoa huduma na kiungo cha tovuti yake ili uweze kwanza kukagua masharti ya wahusika wengine, faragha, upatikanaji na vikomo vya matumizi.
+Msaidizi wa usanidi wa matumizi ya kwanza hutoa kadi ya wazi ya **Sanidi watoa huduma wasiolipishwa**. Hupata orodha ya sasa
+ya watoa huduma wanaostahiki kutoka kwenye sajili ya watoa huduma wa OmniRoute wasiohitaji uthibitishaji, kisha hukuruhusu kukagua na kuondoa uteuzi wa kila
+mtoa huduma kabla ya kuthibitisha. OmniRoute huonyesha ilani ya tahadhari ya mtoa huduma na kiungo cha tovuti yake
+ili uweze kwanza kukagua masharti ya wahusika wengine, faragha, upatikanaji na vikomo vya matumizi.
 
-Kitendo hiki ni cha hiari: kukamilisha msaidizi wa usanidi hakuundi kamwe miunganisho ya watoa huduma bila malipo kwa siri. Huunda tu watoa huduma ambao bado hawapo, huacha miunganisho iliyopo iliyobinafsishwa bila kubadilishwa, na huripoti mmoja mmoja watoa huduma walioundwa, ambao tayari wamesanidiwa na walioshindwa. Unaweza kujaribu tena kwa usalama wale walioshindwa pekee baada ya kupata matokeo ya sehemu.
+Kitendo hiki ni cha hiari: kukamilisha msaidizi wa usanidi kamwe hakuundi miunganisho ya watoa huduma wasiolipishwa bila kukuarifu.
+Huunda tu watoa huduma ambao bado hawapo, huacha miunganisho iliyopo iliyobinafsishwa
+bila kubadilishwa na huripoti kando watoa huduma walioundwa, ambao tayari wamesanidiwa na walioshindwa. Unaweza
+kujaribu tena kwa usalama zile zilizoshindwa pekee baada ya kupata matokeo yasiyokamilika.
 
-### Chaguo A: Mtoa Huduma Bila Malipo (Hakuna Kadi ya Mkopo)
+### Chaguo A: Mtoa Huduma Bila Malipo (Kadi ya Mkopo Haihitajiki)
 
 1. Fungua dashibodi kwenye `http://localhost:20128`
 2. Nenda kwenye **Watoa Huduma** → **Ongeza Mtoa Huduma**
-3. Chagua mmoja wa watoa huduma hawa bila malipo:
-   - **Kiro AI** — Miundo ya Claude bila malipo (hakuna uthibitishaji unaohitajika)
-   - **Pollinations** — GPT-5, Claude, Gemini bila malipo (hakuna ufunguo unaohitajika)
+3. Chagua mmoja wa watoa huduma hawa wasiolipishwa:
+   - **Kiro AI** — Modeli za Claude bila malipo (uthibitishaji hauhitajiki)
+   - **OpenCode Free** — Modeli za GPT bila malipo (uthibitishaji hauhitajiki)
+   - **Pollinations** — GPT-5, Claude, Gemini bila malipo (ufunguo hauhitajiki)
    - **LongCat** — Tokeni milioni 10 bila malipo (ruzuku ya mara moja, inahitaji akaunti + KYC)
-   - **Cloudflare AI** — Miundo 50+, nyuroni 10K/siku
-   - **MLX Gemma 26B** — Muundo wa ndani wa Apple Silicon (~38.5 tok/s, ~15.9GB RAM)
-   - **MLX Qwen 3.8 27B** — Muundo wa ndani wa Apple Silicon (~9.1 tok/s, ~13.1GB RAM)
+   - **Cloudflare AI** — Modeli 50+, neuroni 10K kwa siku
+   - **MLX Gemma 26B** — Modeli ya ndani ya Apple Silicon (~38.5 tok/s, ~15.9GB RAM)
+   - **MLX Qwen 3.8 27B** — Modeli ya ndani ya Apple Silicon (~9.1 tok/s, ~13.1GB RAM)
 4. Bofya **Unganisha**
 5. Imekamilika! Sasa una ufikiaji wa AI bila malipo.
 
@@ -61,7 +68,7 @@ Kitendo hiki ni cha hiari: kukamilisha msaidizi wa usanidi hakuundi kamwe miunga
 4. Chagua mtoa huduma wako
 5. Bandika ufunguo wako wa API
 6. Bofya **Unganisha**
-7. Imekamilika! Sasa unaweza kufikia miundo ya mtoa huduma huyo.
+7. Imekamilika! Sasa unaweza kufikia modeli za mtoa huduma huyo.
 
 ### Chaguo C: Mtoa Huduma wa OAuth (Usajili)
 
@@ -69,20 +76,20 @@ Kitendo hiki ni cha hiari: kukamilisha msaidizi wa usanidi hakuundi kamwe miunga
 2. Nenda kwenye **Watoa Huduma** → **Ongeza Mtoa Huduma**
 3. Chagua mtoa huduma wako (kwa mfano, Claude Code, GitHub Copilot)
 4. Bofya **Unganisha kwa OAuth**
-5. Ingia kwa kutumia akaunti yako
-6. Imekamilika! Sasa unaweza kufikia miundo ya usajili wako.
+5. Ingia ukitumia akaunti yako
+6. Imekamilika! Sasa unaweza kufikia modeli za usajili wako.
 
-### Chaguo D: Miundo ya Ndani ya MLX (Apple Silicon)
+### Chaguo D: Modeli za Ndani za MLX (Apple Silicon)
 
-Kwa Mac za Apple Silicon zilizo na kumbukumbu iliyounganishwa, OmniRoute inasaidia kuunganisha miundo ya ndani ya MLX inayoendeshwa kupitia `mlx-lm.server` kama watoa huduma wa ndani wa kawaida wanaooana na OpenAI.
+Kwa Mac za Apple Silicon zenye kumbukumbu iliyounganishwa, OmniRoute inasaidia kuunganisha modeli za ndani za MLX zinazoendeshwa kupitia `mlx-lm.server` kama watoa huduma wa kawaida wa ndani wanaooana na OpenAI.
 
-#### Mahitaji ya Awali
+#### Masharti ya Awali
 
-- **Apple Silicon Mac** (M1/M2/M3/M4) yenye kumbukumbu iliyounganishwa ya 24GB+ inapendekezwa
+- **Mac ya Apple Silicon** (M1/M2/M3/M4) yenye kumbukumbu iliyounganishwa ya 24GB+ inapendekezwa
 - Kidhibiti cha vifurushi cha **uv**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - **mlx-lm**: `uv pip install mlx-lm`
 
-#### Kuanza Haraka
+#### Mwanzo wa Haraka
 
 1. **Sakinisha vitegemezi**:
 
@@ -97,47 +104,47 @@ Kwa Mac za Apple Silicon zilizo na kumbukumbu iliyounganishwa, OmniRoute inasaid
 2. **Anzisha seva za MLX mwenyewe** (katika vituo tofauti):
 
    ```bash
-   # Kituo cha 1: Gemma 4 26B A4B IT-QAT (porti 11435)
+   # Kituo cha 1: Gemma 4 26B A4B IT-QAT (bandari 11435)
    uv run mlx_lm.server --model mlx-community/gemma-4-26B-A4B-it-qat-q4_0-mlx-aligned --port 11435 --host 127.0.0.1
 
-   # Kituo cha 2: Qwen 3.8 27B MLX Mixed (porti 11436)
+   # Kituo cha 2: Qwen 3.8 27B MLX Mixed (bandari 11436)
    uv run mlx_lm.server --model maglun/Qwen3.8-27B-MLX-Mixed-3.80bpw --port 11436 --host 127.0.0.1
    ```
 
 3. **Unganisha katika Dashibodi ya OmniRoute**:
    - Nenda kwenye **Watoa Huduma** → **Ongeza Mtoa Huduma**
    - Chagua **MLX Gemma 26B** au **MLX Qwen 3.8 27B**
-   - Bofya **Unganisha** (hakuna ufunguo wa API unaohitajika)
+   - Bofya **Unganisha** (ufunguo wa API hauhitajiki)
 
 4. **Tumia na OpenCode**:
    ```bash
-   # Sanidi OpenCode ili itumie OmniRoute
+   # Sanidi OpenCode ili kutumia OmniRoute
    opencode config set api.base_url http://localhost:20128/v1
    opencode config set api.key <your-omniroute-api-key>
 
-   # Tumia miundo ya MLX
+   # Tumia modeli za MLX
    opencode run --model mlx-gemma/gemma-4-26b
    opencode run --model mlx-qwen/qwen3.8-27b
    ```
 
 #### Usimamizi wa Kumbukumbu
 
-**Muhimu**: Ukiwa na kumbukumbu iliyounganishwa ya 24GB, ni **muundo mmoja mkubwa tu wa MLX unaoweza kuendeshwa kwa wakati mmoja**.
+**Muhimu**: Ukiwa na kumbukumbu iliyounganishwa ya 24GB, ni **modeli moja kubwa tu ya MLX inayoweza kuendeshwa kwa wakati mmoja**.
 
-- Gemma 26B: ~15.9GB ya kiwango cha juu cha matumizi ya kumbukumbu
-- Qwen 3.8 27B: ~13.1GB ya kiwango cha juu cha matumizi ya kumbukumbu
+- Gemma 26B: kiwango cha juu cha kumbukumbu cha ~15.9GB
+- Qwen 3.8 27B: kiwango cha juu cha kumbukumbu cha ~13.1GB
 
-Lazima usimamie hili mwenyewe:
+Lazima udhibiti hili mwenyewe:
 
 - Endesha seva moja tu ya MLX kwa wakati mmoja, au
 - Endesha zote mbili kwenye mashine tofauti, au
 - Simamisha moja kabla ya kuanzisha nyingine
 
-OmniRoute haisimamii michakato ya seva za MLX kiotomatiki — inaelekeza tu maombi kwenye endpoints zinazooana na OpenAI unazosanidi.
+OmniRoute haidhibiti kiotomatiki michakato ya seva za MLX — inaelekeza tu maombi kwenye vituo vya mwisho vinavyooana na OpenAI unavyosanidi.
 
-#### Usaidizi wa Kuitisha Zana
+#### Usaidizi wa Kuita Zana
 
-Miundo yote miwili inasaidia kuitisha zana kwa namna inayooana na OpenAI. Jaribu kwa:
+Modeli zote mbili zinaauni uitaji wa zana unaooana na OpenAI. Jaribu kwa:
 
 ```bash
 curl -X POST http://localhost:20128/v1/chat/completions \
@@ -145,37 +152,38 @@ curl -X POST http://localhost:20128/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "mlx-gemma/gemma-4-26b",
-    "messages": [{"role": "user", "content": "What is 2+2? Use the calculator tool."}],
-    "tools": [{"type": "function", "function": {"name": "calculator", "description": "Calculate", "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}}}]
+    "messages": [{"role": "user", "content": "2+2 ni nini? Tumia zana ya kikokotoo."}],
+    "tools": [{"type": "function", "function": {"name": "calculator", "description": "Kokotoa", "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}}}]
   }'
 ```
 
 #### Utatuzi wa Matatizo
 
-| Tatizo                    | Suluhisho                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------ |
-| Seva haianzi              | Angalia `uv run mlx_lm.server --help` na uthibitishe vitambulisho vya miundo               |
-| Kumbukumbu haitoshi       | Hakikisha muundo mmoja tu unaendeshwa; funga programu nyingine; angalia Activity Monitor   |
-| Muunganisho umekataliwa   | Thibitisha kuwa seva inaendeshwa kwenye porti sahihi (11435/11436)                         |
-| Majibu ya polepole        | Ombi la kwanza hupakia muundo kwenye kumbukumbu (~30-60s); maombi yanayofuata huwa ya kasi |
-| Kuitisha zana kunashindwa | Hakikisha muundo unaauni zana; angalia kumbukumbu za OmniRoute kwa hitilafu za tafsiri     |
+| Tatizo                    | Suluhisho                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| Seva haianzi              | Angalia `uv run mlx_lm.server --help` na uthibitishe vitambulisho vya modeli                 |
+| Kumbukumbu haitoshi       | Hakikisha modeli moja tu inaendeshwa; funga programu nyingine; angalia Activity Monitor      |
+| Muunganisho umekataliwa   | Thibitisha kuwa seva inaendeshwa kwenye porti sahihi (11435/11436)                           |
+| Majibu ni ya polepole     | Ombi la kwanza hupakia modeli kwenye kumbukumbu (~30-60s); maombi yanayofuata huwa ya haraka |
+| Uitaji wa zana unashindwa | Hakikisha modeli inatumia zana; angalia kumbukumbu za OmniRoute kwa hitilafu za utafsiri     |
 
 ---
 
-## Watoa Huduma Bora wa Bila Malipo
+## Watoa Huduma Bora wa Bure
 
-Watoa huduma hawa hutoa **ufikiaji bila malipo** bila kuhitaji kadi ya mkopo:
+Watoa huduma hawa hutoa **ufikiaji wa bure** bila kadi ya mkopo:
 
-| Mtoa Huduma       | Kiwango cha Bila Malipo   | Miundo                                   | Jinsi ya Kuunganisha       |
+| Mtoa Huduma       | Kiwango cha Bure          | Miundo                                   | Jinsi ya Kuunganisha       |
 | ----------------- | ------------------------- | ---------------------------------------- | -------------------------- |
 | **Kiro AI**       | Salio 50/mwezi            | Claude Sonnet 4.5, Haiku 4.5, Opus 4.6   | Uthibitishaji hauhitajiki  |
+| **OpenCode Free** | Bila kikomo               | GPT-4o, Claude, Gemini                   | Uthibitishaji hauhitajiki  |
 | **Pollinations**  | Ufunguo hauhitajiki       | GPT-5, Claude, Gemini, DeepSeek, Llama 4 | Uthibitishaji hauhitajiki  |
 | **LongCat**       | 10M mara moja             | LongCat-2.0                              | Ufunguo wa API + KYC       |
 | **Cloudflare AI** | Neuroni 10K/siku          | Miundo 50+                               | Uthibitishaji hauhitajiki  |
 | **NVIDIA NIM**    | ~40 RPM                   | Miundo 129                               | Ufunguo wa API unahitajika |
 | **Cerebras**      | Salio la kujisajili la $5 | GLM 4.7, GPT-OSS 120B                    | Ufunguo wa API + kadi      |
 
-**Kidokezo**: Unganisha watoa huduma wengi wa bila malipo ili kupata **AI ya bila malipo isiyo na kikomo** yenye mfumo wa kubadili kiotomatiki huduma inaposhindwa!
+**Kidokezo**: Unganisha watoa huduma wengi wa bure ili kupata **AI ya bure isiyo na kikomo** yenye uhamishaji wa kiotomatiki kwenda kwa mtoa huduma mwingine!
 
 ---
 
@@ -232,7 +240,7 @@ Mtoa huduma wako sasa ameunganishwa. Unaweza kumtumia kwa `model: "auto"` au umt
 
 OmniRoute hufanya kazi vizuri zaidi ikiwa na **watoa huduma wengi**. Hii hukupa:
 
-- **Kubadili kiotomatiki** — Mtoa huduma mmoja akishindwa, OmniRoute hujaribu anayefuata
+- **Ubadilishaji wa kiotomatiki** — Mtoa huduma mmoja akishindwa, OmniRoute hujaribu anayefuata
 - **Uboreshaji wa gharama** — OmniRoute huchagua mtoa huduma wa bei nafuu zaidi kwa kila ombi
 - **Uboreshaji wa kasi** — OmniRoute huchagua mtoa huduma mwenye kasi zaidi kwa kila ombi
 - **Uboreshaji wa ubora** — OmniRoute huchagua mtoa huduma bora zaidi kwa kila kazi
@@ -241,9 +249,9 @@ OmniRoute hufanya kazi vizuri zaidi ikiwa na **watoa huduma wengi**. Hii hukupa:
 
 Unganisha angalau **watoa huduma 3** ili kupata matumizi bora zaidi:
 
-1. **Mtoa huduma mmoja wa bila malipo** (Kiro au Pollinations) — Anapatikana kila wakati
+1. **Mtoa huduma mmoja wa bure** (Kiro, OpenCode Free, au Pollinations) — Anapatikana kila wakati
 2. **Mtoa huduma mmoja mwenye kasi** (Groq, Cerebras) — Kwa majibu ya haraka
-3. **Mtoa huduma mmoja mwenye ubora wa juu** (OpenAI, Anthropic, Google) — Kwa kazi changamano
+3. **Mtoa huduma mmoja wa ubora wa juu** (OpenAI, Anthropic, Google) — Kwa kazi ngumu
 
 Kisha tumia `model: "auto"` na OmniRoute itamchagua kiotomatiki mtoa huduma bora zaidi kwa kila ombi.
 
@@ -327,27 +335,27 @@ na muda wa mwisho unaoweza kusanidiwa ni maboresho tofauti; tabia hii haiwahakik
 
 ### "Je, ninahitaji kulipa ili kutumia OmniRoute?"
 
-**Hapana!** OmniRoute ni ya bure na yenye msimbo wazi. Unaweza kutumia watoa huduma wa bure (Kiro, Pollinations) bila kulipa chochote. Utalipa tu ukichagua kutumia watoa huduma wanaolipiwa.
+**Hapana!** OmniRoute ni ya bure na ina msimbo huria. Unaweza kutumia watoa huduma wa bure (Kiro, OpenCode Free, Pollinations) bila kulipa chochote. Unalipa tu ukiamua kutumia watoa huduma wanaolipiwa.
 
 ### "Nianze na mtoa huduma gani?"
 
-Anza na **Kiro AI** — ni ya bure, haihitaji API key, na inakupa ufikiaji wa modeli za Claude. Kisha ongeza watoa huduma zaidi kadiri inavyohitajika.
+Anza na **Kiro AI** — ni ya bure, haihitaji ufunguo wa API, na hukupa ufikiaji wa modeli za Claude. Kisha ongeza watoa huduma zaidi inapohitajika.
 
 ### "Je, ninaweza kutumia watoa huduma wengi kwa wakati mmoja?"
 
-**Ndiyo!** Hilo ndilo lengo kuu la OmniRoute. Unganisha watoa huduma wengi na utumie `model: "auto"` ili OmniRoute ichague aliye bora zaidi kwa kila ombi.
+**Ndiyo!** Hilo ndilo lengo kuu la OmniRoute. Unganisha watoa huduma wengi na utumie `model: "auto"` ili kuruhusu OmniRoute ichague mtoa huduma bora zaidi kwa kila ombi.
 
 ### "Itakuwaje ikiwa mtoa huduma hatapatikana?"
 
 OmniRoute huwaruka kiotomatiki watoa huduma walioshindwa na kujaribu anayefuata. Huhitaji kufanya chochote.
 
-### "Ninawezaje kutenganisha mtoa huduma?"
+### "Ninawezaje kukata muunganisho wa mtoa huduma?"
 
-Nenda kwenye Providers → bofya mtoa huduma → bofya **Disconnect**.
+Nenda kwenye Watoa Huduma → bofya mtoa huduma → bofya **Kata Muunganisho**.
 
-### "Je, ninaweza kutumia API keys zangu zilizopo?"
+### "Je, ninaweza kutumia funguo zangu za API zilizopo?"
 
-**Ndiyo!** Ikiwa tayari una API keys za OpenAI, Anthropic, Google, n.k., unaweza kuzitumia katika OmniRoute. Zibandike tu unapounganisha mtoa huduma.
+**Ndiyo!** Ikiwa tayari una funguo za API za OpenAI, Anthropic, Google, n.k., unaweza kuzitumia katika OmniRoute. Zibandike tu unapounganisha mtoa huduma.
 
 ---
 

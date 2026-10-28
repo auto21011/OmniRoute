@@ -51,6 +51,7 @@ penapis keupayaan tugas (penglihatan, mod JSON, alat, konteks maksimum).
 | Penyedia         | Kuota / kredit percuma                                    |
 | ---------------- | --------------------------------------------------------- |
 | Kiro AI          | Peringkat Claude percuma (penggunaan saksama yang banyak) |
+| OpenCode Free    | Tiada pengesahan, had kadar yang banyak                   |
 | Qoder            | OAuth percuma                                             |
 | Google Vertex AI | Kredit $300 untuk akaun baharu                            |
 | Amazon Q         | Peringkat percuma untuk pengguna AWS                      |

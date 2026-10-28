@@ -711,13 +711,18 @@ export async function getComboBuilderOptions(): Promise<ComboBuilderOptionsPaylo
       customModels
     );
 
+    // #2901 follow-up: a configured OpenCode connection shadows the no-auth
+    // entry below, so it must receive the same `oc/` routing prefix. The raw
+    // `opencode/` prefix is reserved by model parsing for the api-key tier.
     // #14135: custom provider nodes (provider-node source) configured with a prefix alias
     // must route under their alias (e.g. "of/model"), not their raw internal database node id
     // (e.g. "openai-compatible-chat-<uuid>/model").
     const routingPrefix =
-      providerVisual.source === "provider-node" && providerVisual.alias
+      providerId === "opencode"
         ? providerVisual.alias
-        : providerId;
+        : providerVisual.source === "provider-node" && providerVisual.alias
+          ? providerVisual.alias
+          : providerId;
     rewriteQualifiedModelPrefix(modelMap, providerId, routingPrefix);
 
     const normalizedConnections =
@@ -780,9 +785,10 @@ export async function getComboBuilderOptions(): Promise<ComboBuilderOptionsPaylo
       customModels
     );
 
-    // #2901: no-auth providers must route under their alias, not their id — a
-    // raw id can collide with a manual ALIAS_TO_PROVIDER_ID override that points
-    // at another provider. Rewrite qualifiedModel to the alias prefix.
+    // #2901: no-auth providers must route under their alias (e.g. "oc"), not
+    // their id — "opencode/<model>" misroutes to the opencode-zen api-key tier
+    // (manual ALIAS_TO_PROVIDER_ID override), while "oc/<model>" resolves to the
+    // no-auth "opencode" provider. Rewrite qualifiedModel to the alias prefix.
     const routingPrefix = noAuthProvider.alias || providerId;
     rewriteQualifiedModelPrefix(modelMap, providerId, routingPrefix);
 

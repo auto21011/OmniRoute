@@ -54,6 +54,7 @@ denné kvóty OAuth.
 | Poskytovateľ     | Bezplatná kvóta/kredity                             |
 | ---------------- | --------------------------------------------------- |
 | Kiro AI          | Bezplatná úroveň Claude (štedré primerané využitie) |
+| OpenCode Free    | Bez overenia, štedré limity požiadaviek             |
 | Qoder            | Bezplatné OAuth                                     |
 | Google Vertex AI | Kredity $300 pre nové účty                          |
 | Amazon Q         | Bezplatná úroveň pre používateľov AWS               |
