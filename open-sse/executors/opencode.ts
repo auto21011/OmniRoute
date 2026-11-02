@@ -84,6 +84,7 @@ import {
 } from "./opencodeFreeTierRetry.ts";
 import { withRequestShapeRetry } from "./opencodeRequestShape.ts";
 import { trimOversizedToolEnums } from "./opencodeEnumTrim.ts";
+import { opencodeTlsFetch } from "../services/opencodeTlsClient.ts";
 
 // Re-exported: the free-model catalog moved to the contract module (it decides whether the
 // contract applies), and existing importers keep resolving it from the executor.
@@ -532,7 +533,40 @@ export class OpencodeExecutor extends BaseExecutor {
     };
   }
 
+  /**
+   * Route a gated free-tier request through the TLS-impersonating client (9router parity).
+   *
+   * The gate keys on the TLS ClientHello: a native Node/OpenSSL fetch is refused with 429
+   * FreeUsageLimitError no matter how faithful the body and headers are. A request that
+   * rides a configured proxy keeps the native path — that dispatcher applies the proxy and
+   * wreq-js cannot share it — so the transport swap is scoped to direct egress. Fail-open:
+   * without wreq-js the request still goes out on native fetch instead of erroring here.
+   */
+  private withFreeTierTls(input: ExecuteInput): ExecuteInput {
+    if (input.directFetch) return input;
+    // Operators can keep the native transport (`OPENCODE_FREE_TIER_TLS=off`), and test
+    // runners always do: their fetch stubs are the wire, so a real TLS session would both
+    // escape the stub and require network.
+    if (/^(0|false|no|off)$/i.test(process.env.OPENCODE_FREE_TIER_TLS?.trim() ?? "")) {
+      return input;
+    }
+    if (process.env.NODE_TEST_CONTEXT || process.env.VITEST || process.env.NODE_ENV === "test") {
+      return input;
+    }
+    const model = String(input.model ?? "");
+    if (!isGatedFreeTierRequest(this._surface(), this.provider, model)) return input;
+    return {
+      ...input,
+      directFetch: (url: string, init: RequestInit) => {
+        if (hasAmbientProxyContext()) return fetch(url, init);
+        const signal = init.signal ?? undefined;
+        return opencodeTlsFetch(url, init, { signal }).catch(() => fetch(url, init));
+      },
+    };
+  }
+
   async execute(input: ExecuteInput) {
+    const routed = this.withFreeTierTls(input);
     try {
       return await runInRequestContext(() => {
         // Pool re-selection resolver published by the chat layer on the
@@ -542,7 +576,7 @@ export class OpencodeExecutor extends BaseExecutor {
         const reselect = currentAppliedProxySink()?.reselectPoolMember;
         const ctx = currentRequestContext();
         if (ctx && typeof reselect === "function") ctx.reselectPoolMember = reselect;
-        return withRequestShapeRetry(input, (i) => this.executeOnce(i));
+        return withRequestShapeRetry(routed, (i) => this.executeOnce(i));
       });
     } finally {
       releaseRequestList(input.body, this.accountHealth);

@@ -213,6 +213,13 @@ export type ExecuteInput = {
   skipUpstreamRetry?: boolean;
   /** In-process capability; never accepted from an HTTP body or client header. */
   validationDispatch?: StrictValidationDispatch;
+  /**
+   * Executor-supplied transport for one request (e.g. the TLS-impersonating client the
+   * OpenCode free tier requires). In-process capability like `validationDispatch`: never
+   * accepted from an HTTP body or client header. When set, it replaces the default
+   * dispatch for this request; the URL is still vetted by `assertOutboundUrlAllowed`.
+   */
+  directFetch?: ((url: string, init: RequestInit) => Promise<Response>) | null;
   /** Request-scoped id for log attribution; absent off the chat path, never fabricated. */
   correlationId?: string | null;
   /** Delegated Context Editing (Claude only): when enabled, attach the
@@ -975,6 +982,12 @@ export class BaseExecutor {
             : requestOptions;
 
           try {
+            // Executor-supplied transport owns the wire for this request (already past the
+            // outbound URL vetting above). The DNS-rebinding guard below only wraps the
+            // default dispatcher, so it is intentionally bypassed here.
+            if (input.directFetch) {
+              return await input.directFetch(requestUrl, optionsWithSignal);
+            }
             // Strict-validation fence (tip) first, then the connect-time DNS-rebinding guard
             // for operator-supplied base URLs (#13330) as the transport.
             return await validationFetch(
