@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - feat/error-rules-ui-3851
+      - feat/error-rules-ui-3851-v2
+      - v3852-custom
   workflow_dispatch:
 
 permissions:
@@ -14,15 +16,28 @@ jobs:
     name: Build and Pack TGZ
     runs-on: ubuntu-latest
     steps:
-      - name: Expand Virtual Memory (10GB Swap)
+      # The hosted image ships ~30 GB of toolchains this build never uses; without
+      # freeing them node_modules (~4.3 GB) plus .next and dist leave the runner short
+      # on disk and the job dies mid-build with no log.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean
+          df -h /
+
+      # 4 GB of swap as a safety net for the webpack pass (see the build step for why
+      # the bundler matters here). More than that only thrashes on a 4-core runner.
+      - name: Expand Virtual Memory (4GB Swap)
         run: |
           sudo swapoff -a || true
           sudo rm -f /mnt/swapfile /swapfile
-          sudo fallocate -l 10G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=10240
+          sudo fallocate -l 4G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=4096
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
           free -h
+          df -h /
+          nproc
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,9 +56,14 @@ jobs:
       - name: Build Next.js app & CLI bundle
         run: npm run build:release
         env:
-          NODE_OPTIONS: "--max-old-space-size=12288"
-          OMNIROUTE_BUILD_MEMORY_MB: "12288"
-          OMNIROUTE_USE_TURBOPACK: "1"
+          # Turbopack's allocator lives outside the V8 heap, so --max-old-space-size
+          # cannot bound it: on a 16 GB runner it OOM-kills the job mid-compile
+          # ("The operation was canceled." ~7 min in, no log). Webpack's peak *is*
+          # bounded by the heap flag, so the documented memory-constrained path is
+          # the one that survives here (scripts/build/build-next-isolated.mjs:140).
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          OMNIROUTE_BUILD_MEMORY_MB: "8192"
+          OMNIROUTE_USE_TURBOPACK: "0"
 
       - name: Pack TGZ
         run: npm pack
@@ -63,7 +83,7 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           gh release create "build-${SHORT_SHA}" omniroute-*.tgz \
             --title "Build ${SHORT_SHA}" \
-            --notes "Automated build from commit ${SHORT_SHA} on branch feat/error-rules-ui-3851" \
+            --notes "Automated build from commit ${SHORT_SHA} on branch ${{ github.ref_name }}" \
             --prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
