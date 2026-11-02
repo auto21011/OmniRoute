@@ -9,6 +9,7 @@ import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   OPENCODE_CIPHER_LIST,
+  OPENCODE_TLS_PROFILE,
   OpencodeTlsUnavailableError,
   __setOpencodeTlsSessionFactoryForTesting,
   opencodeTlsFetch,
@@ -25,6 +26,16 @@ test("the cipher list is the BoringSSL list the upstream accepts, in order", () 
   assert.equal(list[0], "TLS_AES_128_GCM_SHA256");
   assert.equal(list[2], "TLS_CHACHA20_POLY1305_SHA256");
   assert.equal(list.at(-1), "AES256-SHA");
+});
+
+test("the profile reproduces the CLI's ClientHello, not just its cipher list", () => {
+  // Measured 2026-11-03: cipher list alone yields JA3 b513e31c…; the CLI presents
+  // 4181203c…, which needs HTTP/1.1 ALPN, the four-curve list, and extensions 5 + 18.
+  assert.deepEqual(OPENCODE_TLS_PROFILE.alpnProtocols, ["HTTP1"]);
+  assert.equal(OPENCODE_TLS_PROFILE.curvesList, "X25519MLKEM768:X25519:P-256:P-384");
+  assert.equal(OPENCODE_TLS_PROFILE.enableOcspStapling, true);
+  assert.equal(OPENCODE_TLS_PROFILE.enableSignedCertTimestamps, true);
+  assert.equal(OPENCODE_TLS_PROFILE.cipherList, OPENCODE_CIPHER_LIST);
 });
 
 test("a missing wreq-js runtime raises OpencodeTlsUnavailableError", async () => {
@@ -73,7 +84,7 @@ test("the session is built with the cipher list, reused, and replaced after rese
   assert.equal(fetches, 2);
   assert.equal(created.length, 1, "the session is reused across requests");
   assert.deepEqual(created[0], {
-    emulation: { tlsOptions: { cipherList: OPENCODE_CIPHER_LIST } },
+    emulation: { tlsOptions: OPENCODE_TLS_PROFILE },
   });
 
   resetOpencodeTlsSession();
@@ -115,7 +126,7 @@ test("the proxy is bound at session creation, one session per proxy URL", async 
   assert.equal(created.length, 2, "one session per proxy URL");
   // `proxy` is a sibling of `emulation`: nesting it there is silently ignored.
   assert.deepEqual(created[0], {
-    emulation: { tlsOptions: { cipherList: OPENCODE_CIPHER_LIST } },
+    emulation: { tlsOptions: OPENCODE_TLS_PROFILE },
     proxy: "http://127.0.0.1:10808",
   });
   assert.equal((created[1] as { proxy?: string }).proxy, "http://127.0.0.1:10809");

@@ -265,11 +265,16 @@ describe("OpencodeExecutor", () => {
       // going out with no Authorization header at all (see resolveFreeTierCredential).
       const result = await zenExecutor.execute(createInput("minimax-m2.5-free", true, null));
 
-      assert.deepEqual(result.headers, {
+      const { b3, traceparent, ...rest } = result.headers;
+      assert.deepEqual(rest, {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
         Authorization: "Bearer public",
       });
+      // The CLI sends B3 + W3C trace context on this lane (captured 2026-11-03); a gated
+      // request without it does not look like CLI traffic to the gate.
+      assert.match(b3, /^[0-9a-f]{32}-[0-9a-f]{16}-1-[0-9a-f]{16}$/);
+      assert.match(traceparent, /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
       assert.deepEqual(fetchCalls[0].options.headers, result.headers);
     });
 

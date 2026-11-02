@@ -40,6 +40,24 @@ export const OPENCODE_CIPHER_LIST = [
   "AES256-SHA",
 ].join(":");
 
+/**
+ * The full ClientHello the OpenCode CLI presents, not just its cipher list. Measured
+ * 2026-11-03 by capturing the CLI's own handshake (`opencode run` through a redirecting
+ * CONNECT proxy) and replaying candidate wreq-js profiles against a ClientHello sniffer:
+ * the cipher list alone leaves three extensions and one key-exchange group off, which
+ * yields a different JA3 (b513e31c…) than the CLI (4181203c…). Adding the ALPN, curve
+ * list, OCSP-staple and SCT extensions reproduces the CLI's JA3 byte for byte.
+ */
+export const OPENCODE_TLS_PROFILE = {
+  cipherList: OPENCODE_CIPHER_LIST,
+  // The CLI speaks HTTP/1.1 to this endpoint; advertising h2 changes the handshake.
+  alpnProtocols: ["HTTP1"] as const,
+  curvesList: "X25519MLKEM768:X25519:P-256:P-384",
+  // Extension 5 (status_request) and 18 (signed_certificate_timestamp).
+  enableOcspStapling: true,
+  enableSignedCertTimestamps: true,
+};
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 export interface OpencodeTlsResponseLike {
@@ -109,7 +127,7 @@ async function loadSession(proxyUrl?: string): Promise<OpencodeTlsSession> {
     // `proxy` is a sibling of `emulation` in CreateSessionOptions — nesting it inside
     // `emulation` is silently ignored and the request leaks out on the direct IP.
     const session = await createSession({
-      emulation: { tlsOptions: { cipherList: OPENCODE_CIPHER_LIST } },
+      emulation: { tlsOptions: OPENCODE_TLS_PROFILE },
       ...(proxyUrl ? { proxy: proxyUrl } : {}),
     });
     if (!session || typeof session.fetch !== "function") {

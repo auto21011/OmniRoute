@@ -27,6 +27,7 @@ import {
   noteStoredFallback,
 } from "./opencodeResilienceNotes.ts";
 import {
+  applyOpencodeTraceHeaders,
   clientSuppliedOpencodeSession,
   forwardOpencodeClientHeaders,
   resolveOpencodeCliDefaults,
@@ -1436,6 +1437,10 @@ export class OpencodeExecutor extends BaseExecutor {
         v2Fingerprint,
       });
     }
+
+    // The CLI propagates B3 + W3C trace context on every call to the inference lane; a
+    // gated request without it does not look like CLI traffic to the gate.
+    if (gatedScope) applyOpencodeTraceHeaders(headers);
 
     // The Muse Responses workaround that forced a UUID session here is gone: the shape it
     // produced is exactly what the upstream now refuses, and the canonical session it used

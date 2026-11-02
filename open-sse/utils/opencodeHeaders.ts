@@ -404,6 +404,24 @@ function applySessionFallback(
 }
 
 /**
+ * Propagate the trace context the CLI puts on every inference call.
+ *
+ * Captured 2026-11-03 from `opencode run` (CLI v2.2.3): every POST to
+ * `/inference/openai/v1/chat/completions` carries a B3 header
+ * (`{trace}-{span}-1-{parent}`) and the matching W3C `traceparent`. The free-tier gate
+ * treats a request without them as non-CLI traffic, so gated requests synthesize a pair
+ * when the caller did not supply one. Both headers are per-request — never reused across
+ * calls — so each call gets a fresh trace.
+ */
+export function applyOpencodeTraceHeaders(headers: Record<string, string>): void {
+  if (headers.b3 || headers.B3) return;
+  const traceId = randomBytes(16).toString("hex");
+  const spanId = randomBytes(8).toString("hex");
+  headers.b3 = `${traceId}-${spanId}-1-${randomBytes(8).toString("hex")}`;
+  headers.traceparent ||= `00-${traceId}-${spanId}-01`;
+}
+
+/**
  * Fill the OpenCode CLI identity headers Cloudflare requires on VPS egress. For
  * x-opencode-* headers, client values always win (defaults only fill gaps). The
  * User-Agent is the exception: a non-CLI client UA (curl, python, SDKs) is replaced
