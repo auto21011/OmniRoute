@@ -80,3 +80,70 @@ test("the session is built with the cipher list, reused, and replaced after rese
   await opencodeTlsFetch("https://opencode.ai/inference/v1/chat/completions", {});
   assert.equal(created.length, 2, "reset drops the cached session");
 });
+
+test("the proxy is bound at session creation, one session per proxy URL", async () => {
+  const created: Array<Record<string, unknown>> = [];
+  __setOpencodeTlsSessionFactoryForTesting(async (options) => {
+    created.push(options);
+    return {
+      fetch: async () => ({ status: 200, headers: {}, body: null }),
+      close: () => {},
+    };
+  });
+
+  await opencodeTlsFetch(
+    "https://opencode.ai/inference/v1/chat/completions",
+    {},
+    {
+      proxyUrl: "http://127.0.0.1:10808",
+    }
+  );
+  await opencodeTlsFetch(
+    "https://opencode.ai/inference/v1/chat/completions",
+    {},
+    {
+      proxyUrl: "http://127.0.0.1:10808",
+    }
+  );
+  await opencodeTlsFetch(
+    "https://opencode.ai/inference/v1/chat/completions",
+    {},
+    {
+      proxyUrl: "http://127.0.0.1:10809",
+    }
+  );
+  assert.equal(created.length, 2, "one session per proxy URL");
+  // `proxy` is a sibling of `emulation`: nesting it there is silently ignored.
+  assert.deepEqual(created[0], {
+    emulation: { tlsOptions: { cipherList: OPENCODE_CIPHER_LIST } },
+    proxy: "http://127.0.0.1:10808",
+  });
+  assert.equal((created[1] as { proxy?: string }).proxy, "http://127.0.0.1:10809");
+});
+
+test("a 429 drops that proxy's session so the next attempt rebuilds it", async () => {
+  let created = 0;
+  let status = 429;
+  __setOpencodeTlsSessionFactoryForTesting(async () => {
+    created += 1;
+    return {
+      fetch: async () => ({ status, headers: {}, body: null }),
+      close: () => {},
+    };
+  });
+
+  const first = await opencodeTlsFetch(
+    "https://opencode.ai/inference/v1/chat/completions",
+    {},
+    { proxyUrl: "http://127.0.0.1:10808" }
+  );
+  assert.equal(first.status, 429);
+  status = 200;
+  const second = await opencodeTlsFetch(
+    "https://opencode.ai/inference/v1/chat/completions",
+    {},
+    { proxyUrl: "http://127.0.0.1:10808" }
+  );
+  assert.equal(second.status, 200);
+  assert.equal(created, 2, "the burned session was not reused");
+});

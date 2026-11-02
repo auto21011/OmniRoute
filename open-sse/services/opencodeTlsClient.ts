@@ -66,7 +66,13 @@ export class OpencodeTlsUnavailableError extends Error {
 }
 
 let sessionFactoryOverride: CreateSessionFn | null | undefined;
-let sessionPromise: Promise<OpencodeTlsSession> | null = null;
+
+/**
+ * Sessions are cached per egress proxy: wreq-js binds the proxy at session creation and
+ * rejects a per-request override ("Session proxy cannot be changed after creation"), so a
+ * proxy pool needs one session per member. The empty key is direct egress.
+ */
+const sessions = new Map<string, Promise<OpencodeTlsSession>>();
 
 function loadCreateSession(): CreateSessionFn | null {
   if (sessionFactoryOverride !== undefined) return sessionFactoryOverride;
@@ -91,33 +97,61 @@ export function __setOpencodeTlsSessionFactoryForTesting(
   resetOpencodeTlsSession();
 }
 
-async function loadSession(): Promise<OpencodeTlsSession> {
-  if (!sessionPromise) {
-    sessionPromise = (async () => {
-      const createSession = loadCreateSession();
-      if (!createSession) {
-        throw new OpencodeTlsUnavailableError("wreq-js runtime is unavailable");
-      }
-      const session = await createSession({
-        emulation: { tlsOptions: { cipherList: OPENCODE_CIPHER_LIST } },
-      });
-      if (!session || typeof session.fetch !== "function") {
-        throw new OpencodeTlsUnavailableError("wreq-js session is missing fetch");
-      }
-      return session;
-    })().catch((error) => {
-      sessionPromise = null;
-      throw error;
+async function loadSession(proxyUrl?: string): Promise<OpencodeTlsSession> {
+  const key = proxyUrl ?? "";
+  const cached = sessions.get(key);
+  if (cached) return cached;
+  const created = (async () => {
+    const createSession = loadCreateSession();
+    if (!createSession) {
+      throw new OpencodeTlsUnavailableError("wreq-js runtime is unavailable");
+    }
+    // `proxy` is a sibling of `emulation` in CreateSessionOptions — nesting it inside
+    // `emulation` is silently ignored and the request leaks out on the direct IP.
+    const session = await createSession({
+      emulation: { tlsOptions: { cipherList: OPENCODE_CIPHER_LIST } },
+      ...(proxyUrl ? { proxy: proxyUrl } : {}),
     });
-  }
-  return sessionPromise;
+    if (!session || typeof session.fetch !== "function") {
+      throw new OpencodeTlsUnavailableError("wreq-js session is missing fetch");
+    }
+    return session;
+  })().catch((error) => {
+    sessions.delete(key);
+    throw error;
+  });
+  sessions.set(key, created);
+  return created;
 }
 
-/** Drop the cached session so the next call builds a fresh one. */
-export function resetOpencodeTlsSession(): void {
-  const pending = sessionPromise;
-  sessionPromise = null;
-  pending?.then((session) => session.close?.()).catch(() => {});
+/**
+ * Drop a cached session so the next call builds a fresh one — the escape hatch for a
+ * burned egress IP behind a rotating proxy. Closes the old session after a grace period
+ * so a response body still being read is not cut off.
+ */
+export function resetOpencodeTlsSession(proxyUrl?: string): void {
+  // No argument drops every session (the test seam and a full reset); a proxy URL drops
+  // only that member's session.
+  const keys = proxyUrl === undefined ? [...sessions.keys()] : [proxyUrl];
+  for (const key of keys) dropSession(key);
+}
+
+function dropSession(key: string): void {
+  const pending = sessions.get(key);
+  if (!pending) return;
+  sessions.delete(key);
+  pending
+    .then((session) => {
+      const timer = setTimeout(() => {
+        try {
+          void session.close?.();
+        } catch {
+          // best effort
+        }
+      }, 60_000);
+      timer.unref?.();
+    })
+    .catch(() => {});
 }
 
 function headersToNative(raw: OpencodeTlsResponseLike["headers"]): Headers {
@@ -149,11 +183,15 @@ function headersToNative(raw: OpencodeTlsResponseLike["headers"]): Headers {
 export async function opencodeTlsFetch(
   url: string,
   init: RequestInit = {},
-  { signal, timeoutMs = DEFAULT_TIMEOUT_MS }: { signal?: AbortSignal; timeoutMs?: number } = {}
+  {
+    signal,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    proxyUrl,
+  }: { signal?: AbortSignal; timeoutMs?: number; proxyUrl?: string } = {}
 ): Promise<Response> {
   let session: OpencodeTlsSession;
   try {
-    session = await loadSession();
+    session = await loadSession(proxyUrl);
   } catch (error) {
     throw new OpencodeTlsUnavailableError(
       `wreq-js unavailable (${error instanceof Error ? error.message : "unknown"})`
@@ -170,6 +208,9 @@ export async function opencodeTlsFetch(
   if (signal) options.signal = signal;
 
   const res = await session.fetch(url, options);
+  // A 429 on this lane means the egress IP's free pool is spent; drop the cached session
+  // so the next attempt rebuilds through whatever proxy the pool selects next.
+  if (res.status === 429) resetOpencodeTlsSession(proxyUrl);
   return new Response(res.body, {
     status: res.status,
     statusText: res.statusText ?? "",

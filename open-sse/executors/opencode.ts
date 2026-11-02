@@ -537,10 +537,11 @@ export class OpencodeExecutor extends BaseExecutor {
    * Route a gated free-tier request through the TLS-impersonating client (9router parity).
    *
    * The gate keys on the TLS ClientHello: a native Node/OpenSSL fetch is refused with 429
-   * FreeUsageLimitError no matter how faithful the body and headers are. A request that
-   * rides a configured proxy keeps the native path — that dispatcher applies the proxy and
-   * wreq-js cannot share it — so the transport swap is scoped to direct egress. Fail-open:
-   * without wreq-js the request still goes out on native fetch instead of erroring here.
+   * FreeUsageLimitError no matter how faithful the body and headers are. The transport swap
+   * covers proxied egress too — wreq-js binds the proxy at session creation, so the client
+   * resolves the request's proxy here and keeps one session per proxy URL (a proxy pool
+   * therefore keeps its impersonation on every member). Fail-open: without wreq-js the
+   * request still goes out on native fetch instead of erroring here.
    */
   private withFreeTierTls(input: ExecuteInput): ExecuteInput {
     if (input.directFetch) return input;
@@ -558,9 +559,16 @@ export class OpencodeExecutor extends BaseExecutor {
     return {
       ...input,
       directFetch: (url: string, init: RequestInit) => {
-        if (hasAmbientProxyContext()) return fetch(url, init);
+        let proxyUrl: string | undefined;
+        try {
+          proxyUrl = resolveProxyForRequest(url)?.proxyUrl ?? undefined;
+        } catch {
+          // A configured-but-unusable proxy must surface on the normal path, not be
+          // silently replaced by a direct connection.
+          return fetch(url, init);
+        }
         const signal = init.signal ?? undefined;
-        return opencodeTlsFetch(url, init, { signal }).catch(() => fetch(url, init));
+        return opencodeTlsFetch(url, init, { signal, proxyUrl }).catch(() => fetch(url, init));
       },
     };
   }
