@@ -23,6 +23,7 @@ import {
 import {
   clearAllModelLockouts,
   getModelLockoutInfo,
+  isModelLocked,
 } from "../../../open-sse/services/accountFallback.ts";
 
 function emptyState(overrides: Partial<AttemptLoopState> = {}): AttemptLoopState {
@@ -1194,4 +1195,119 @@ test("classic failure still clears the stale LKGP pin", async () => {
         call[7] === target
     )
   );
+});
+
+test("combo target timeout 504 with provider_single_model error rule locks model across connections and wildcard", async () => {
+  const provider = "nvidia";
+  const model = "deepseek-ai/deepseek-v4.1-flash";
+
+  const { createProviderConnection } = await import("../../../src/lib/db/providers.ts");
+  // The row id is assigned by the DB (a caller-supplied id is ignored), so the
+  // assertions below have to read it back instead of assuming one.
+  const created1 = await createProviderConnection({
+    provider,
+    name: `Key 1 ${Date.now()}`,
+    apiKey: "key-1",
+    isActive: true,
+  });
+  const created2 = await createProviderConnection({
+    provider,
+    name: `Key 2 ${Date.now()}`,
+    apiKey: "key-2",
+    isActive: true,
+  });
+  const conn1 = created1?.id as string;
+  const conn2 = created2?.id as string;
+
+  const { updateSettings } = await import("../../../src/lib/db/settings.ts");
+  await updateSettings({
+    providerErrorRules: {
+      nvidia: [
+        {
+          status: 504,
+          match: "combo-per-model-timeout",
+          scope: "provider_single_model",
+          reason: "model_capacity",
+          cooldownMs: 900_000,
+        },
+      ],
+    },
+  });
+
+  const target: ResolvedComboTarget = {
+    kind: "model",
+    modelStr: `${provider}/${model}`,
+    provider,
+    providerId: null,
+    connectionId: null,
+    executionKey: "k2",
+    stepId: "s2",
+    weight: 1,
+    label: null,
+  };
+  const deps = baseDeps({
+    maxRetries: 0,
+    settings: {},
+    handleSingleModelWithTimeout: async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: `Model '${provider}/${model}' timed out`,
+            type: "combo_target_timeout",
+            code: "combo_target_timeout",
+          },
+        }),
+        {
+          status: 504,
+          headers: {
+            "Content-Type": "application/json",
+            "x-omniroute-selected-connection-id": conn1,
+          },
+        }
+      );
+    },
+  });
+  const state = emptyState({
+    orderedTargets: [target],
+    abortControllers: new Map([[0, new AbortController()]]),
+  });
+
+  const { executeTargetAttempt } =
+    await import("../../../open-sse/services/combo/executeTargetAttempt.ts");
+  await executeTargetAttempt({
+    index: 0,
+    state,
+    deps,
+    targetForAttempt: target,
+    profile: {},
+    protectedPriorityTarget: false,
+  });
+
+  assert.equal(isModelLocked(provider, conn1, model), true);
+  assert.equal(isModelLocked(provider, conn2, model), true);
+  assert.equal(isModelLocked(provider, "", model), true);
+
+  const { evaluateExecuteTargetGates } =
+    await import("../../../open-sse/services/combo/executeTargetGates.ts");
+  const unpinnedTarget: ResolvedComboTarget = {
+    kind: "model",
+    modelStr: `${provider}/${model}`,
+    provider,
+    providerId: null,
+    connectionId: null,
+    executionKey: "k3",
+    stepId: "s3",
+    weight: 1,
+    label: null,
+  };
+  const nextState = emptyState({
+    orderedTargets: [unpinnedTarget],
+    abortControllers: new Map([[0, new AbortController()]]),
+  });
+  const gateResult = await evaluateExecuteTargetGates({
+    index: 0,
+    state: nextState,
+    deps,
+  });
+  assert.equal(gateResult.kind, "skip");
 });

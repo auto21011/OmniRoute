@@ -1,16 +1,7 @@
 // @vitest-environment jsdom
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-
-// Warm the component modules once, outside the 5 s per-test budget: the first cold transform
-// of the kit (Alert, PageHeader, Table…) can take several seconds on a loaded runner, which
-// made whichever test imported first time out. Assertions are unchanged.
-beforeAll(async () => {
-  await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ResilienceConnectionsClient");
-  await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionsTable");
-  await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/BreakerTimeline");
-}, 60_000);
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // next-intl: return the key so we can assert on stable strings. When options are
 // passed, append their JSON so interpolated values (e.g. the degraded banner's
@@ -238,6 +229,44 @@ describe("ResilienceConnectionsClient", () => {
     await waitFor(() => el!.textContent?.includes("openai"));
     expect(el!.textContent).not.toContain('"sources"');
   });
+
+  it("renders clear all cooldowns button when coolingDownCount > 0 and calls POST /api/resilience/connections", async () => {
+    const { default: Client } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ResilienceConnectionsClient");
+    const resp = makeResponse({
+      connections: [makeConnection({ isCoolingDown: true, connectionStatus: "cooling_down" })],
+      coolingDownCount: 1,
+    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(resp), { status: 200 }));
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(<Client />) as HTMLDivElement;
+    });
+    await waitFor(() => el!.textContent?.includes("summary.clearAllCooldowns"));
+    const clearAllBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "summary.clearAllCooldowns"
+    );
+    expect(clearAllBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, releasedCount: 1 }), { status: 200 })
+    );
+
+    act(() => {
+      clearAllBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+      )
+    );
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({ all: true });
+  });
 });
 
 describe("ConnectionsTable", () => {
@@ -270,6 +299,35 @@ describe("ConnectionsTable", () => {
     });
     expect(el!.textContent).toContain("openai");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("renders friendly providerName and connection name with full IDs in tooltips", async () => {
+    const { default: Table } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionsTable");
+    const conn = makeConnection({
+      id: "77a185db-e520-4c9a-ae22-9ef9a0b4df38",
+      provider: "openai-compatible-chat-d5cb55e0-b3b3-413d-8d47-aa81659fc152",
+      providerName: "MS_AMD_DEV",
+      name: "Geoffrey21011",
+    });
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <Table connections={[conn]} receivedAt={Date.now()} degraded={[]} />
+      ) as HTMLDivElement;
+    });
+    // Friendly names displayed in table
+    expect(el!.textContent).toContain("MS_AMD_DEV");
+    expect(el!.textContent).toContain("Geoffrey21011");
+    // Tooltips contain full IDs
+    const providerSpan = el!.querySelector(
+      'span[title="openai-compatible-chat-d5cb55e0-b3b3-413d-8d47-aa81659fc152"]'
+    );
+    expect(providerSpan).not.toBeNull();
+    expect(providerSpan?.textContent).toBe("MS_AMD_DEV");
+    const idSpan = el!.querySelector('span[title="77a185db-e520-4c9a-ae22-9ef9a0b4df38"]');
+    expect(idSpan).not.toBeNull();
+    expect(idSpan?.textContent).toBe("Geoffrey21011");
   });
 
   it("status cell shows coarse badge plus typed availability label", async () => {
@@ -407,6 +465,527 @@ describe("ConnectionsTable", () => {
     });
     await waitFor(() => !el!.textContent?.includes("detail.title"));
     expect(el!.textContent).not.toContain("detail.title");
+  });
+
+  it("releases lockout in ConnectionDetail on button click", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+    const conn = makeConnection({
+      id: "conn-detail-1",
+      provider: "openai",
+      lockouts: [{ model: "gpt-4", reason: "manual_disable", remainingMs: 30000 }],
+    });
+
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <ConnectionDetail connection={conn} receivedAt={Date.now()} onClose={() => {}} />
+      ) as HTMLDivElement;
+    });
+
+    expect(el!.textContent).toContain("gpt-4");
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, removed: true }), { status: 200 })
+    );
+
+    const releaseBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.release"
+    );
+    expect(releaseBtn).toBeTruthy();
+
+    act(() => {
+      releaseBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "DELETE"
+      )
+    );
+    const deleteCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "DELETE"
+    );
+    expect(deleteCall).toBeTruthy();
+    expect(JSON.parse((deleteCall![1] as any).body)).toEqual({
+      provider: "openai",
+      model: "gpt-4",
+      connectionId: "conn-detail-1",
+    });
+  });
+
+  it("renders clear cooldown button on cooling down connection and calls POST /api/resilience/connections", async () => {
+    const { default: Table } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionsTable");
+    const conn = makeConnection({
+      id: "conn-cool-1",
+      provider: "sensenova",
+      isCoolingDown: true,
+      connectionStatus: "cooling_down",
+    });
+    const onRefresh = vi.fn();
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <Table connections={[conn]} receivedAt={Date.now()} degraded={[]} onRefresh={onRefresh} />
+      ) as HTMLDivElement;
+    });
+    const clearBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "table.clearCooldown"
+    );
+    expect(clearBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, releasedCount: 1 }), { status: 200 })
+    );
+
+    act(() => {
+      clearBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+      )
+    );
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({
+      connectionId: "conn-cool-1",
+      provider: "sensenova",
+      resetBreaker: true,
+      clearLockouts: true,
+    });
+    await waitFor(() => onRefresh.mock.calls.length > 0);
+  });
+
+  it("renders clear cooldown and restore buttons in ConnectionDetail", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+    const conn = makeConnection({
+      id: "conn-detail-cool",
+      provider: "sensenova",
+      isCoolingDown: true,
+      rateLimitedUntil: new Date(Date.now() + 60000).toISOString(),
+      breaker: {
+        state: "OPEN",
+        failureCount: 5,
+        retryAfterMs: 30000,
+        lastFailureKind: "rate_limit",
+      },
+    });
+    const onRefresh = vi.fn();
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
+    });
+
+    const clearCooldownBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.clearCooldown"
+    );
+    expect(clearCooldownBtn).toBeTruthy();
+
+    const resetBreakerBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.resetBreaker"
+    );
+    expect(resetBreakerBtn).toBeTruthy();
+
+    const restoreBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.restoreConnection"
+    );
+    expect(restoreBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, releasedCount: 1 }), { status: 200 })
+    );
+
+    act(() => {
+      clearCooldownBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/connections" && (c[1] as any)?.method === "POST"
+      )
+    );
+    await waitFor(() => onRefresh.mock.calls.length > 0);
+  });
+});
+
+describe("ConnectionDetail advanced operations", () => {
+  let fetchMock: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchMock = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchMock.mockRestore();
+    for (const { root, el } of containers) {
+      act(() => {
+        root.unmount();
+      });
+      el.remove();
+    }
+    containers.length = 0;
+  });
+
+  it("submits disable model form calling POST /api/resilience/model-cooldowns via select", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+    const conn = makeConnection({
+      id: "conn-lock-1",
+      provider: "anthropic",
+      lockouts: [],
+    });
+    const onRefresh = vi.fn();
+
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
+    });
+
+    const disableBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("detail.disableModel")
+    );
+    expect(disableBtn).toBeTruthy();
+
+    act(() => {
+      disableBtn!.click();
+    });
+
+    const select = el!.querySelector("select") as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    act(() => {
+      select.value = "claude-sonnet-4.5";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, lockedCount: 1, until: Date.now() + 300000 }), {
+        status: 200,
+      })
+    );
+
+    const form = el!.querySelector("form");
+    expect(form).toBeTruthy();
+
+    act(() => {
+      form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
+      )
+    );
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4.5",
+      durationMs: 300000,
+      connectionId: "conn-lock-1",
+      scope: "connection",
+      reason: "manual_disable",
+    });
+    await waitFor(() => onRefresh.mock.calls.length > 0);
+  });
+
+  it("submits disable model form with custom input when choosing custom option", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+    const conn = makeConnection({
+      id: "conn-lock-2",
+      provider: "anthropic",
+      lockouts: [],
+    });
+    const onRefresh = vi.fn();
+
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
+    });
+
+    const disableBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("detail.disableModel")
+    );
+    expect(disableBtn).toBeTruthy();
+
+    act(() => {
+      disableBtn!.click();
+    });
+
+    const select = el!.querySelector("select") as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    act(() => {
+      select.value = "__custom__";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const input = el!.querySelector("input[type='text']") as HTMLInputElement;
+    expect(input).toBeTruthy();
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      setter?.call(input, "claude-custom-special");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, lockedCount: 1, until: Date.now() + 300000 }), {
+        status: 200,
+      })
+    );
+
+    const form = el!.querySelector("form");
+    expect(form).toBeTruthy();
+
+    act(() => {
+      form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
+      )
+    );
+    const postCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/api/resilience/model-cooldowns" && (c[1] as any)?.method === "POST"
+    );
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse((postCall![1] as any).body)).toEqual({
+      provider: "anthropic",
+      model: "claude-custom-special",
+      durationMs: 300000,
+      connectionId: "conn-lock-2",
+      scope: "connection",
+      reason: "manual_disable",
+    });
+    await waitFor(() => onRefresh.mock.calls.length > 0);
+  });
+
+  it("submits manual cooldown and trip breaker in ConnectionDetail", async () => {
+    const { default: ConnectionDetail } =
+      await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+    const conn = makeConnection({
+      id: "conn-healthy-1",
+      provider: "openai",
+      isCoolingDown: false,
+      breaker: {
+        state: "CLOSED",
+        failureCount: 0,
+        retryAfterMs: 0,
+        lastFailureKind: null,
+      },
+    });
+    const onRefresh = vi.fn();
+
+    let el: HTMLDivElement;
+    act(() => {
+      el = render(
+        <ConnectionDetail
+          connection={conn}
+          receivedAt={Date.now()}
+          onClose={() => {}}
+          onRefresh={onRefresh}
+        />
+      ) as HTMLDivElement;
+    });
+
+    // 1. Manual cooldown
+    const cooldownBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("detail.manualCooldown")
+    );
+    expect(cooldownBtn).toBeTruthy();
+
+    act(() => {
+      cooldownBtn!.click();
+    });
+
+    const confirmCooldownBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.confirmCooldown"
+    );
+    expect(confirmCooldownBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, connectionId: "conn-healthy-1" }), { status: 200 })
+    );
+
+    act(() => {
+      confirmCooldownBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) =>
+          c[0] === "/api/resilience/connections" &&
+          (c[1] as any)?.method === "POST" &&
+          JSON.parse((c[1] as any).body).action === "set_cooldown"
+      )
+    );
+
+    // 2. Manual trip breaker
+    const tripBtn = Array.from(el!.querySelectorAll("button")).find(
+      (b) => b.textContent === "detail.manualTrip"
+    );
+    expect(tripBtn).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, tripped: true }), { status: 200 })
+    );
+
+    act(() => {
+      tripBtn!.click();
+    });
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(
+        (c) =>
+          c[0] === "/api/resilience/connections" &&
+          (c[1] as any)?.method === "POST" &&
+          JSON.parse((c[1] as any).body).action === "trip_breaker"
+      )
+    );
+  });
+
+  it("includes imported models and excludes hidden models from provider model selection", async () => {
+    (globalThis as any).__TEST_ENABLE_MODEL_FETCH__ = true;
+    try {
+      const { default: ConnectionDetail } =
+        await import("../../../src/app/(dashboard)/dashboard/resilience/connections/components/ConnectionDetail");
+      const conn = makeConnection({
+        id: "conn-sensenova-1",
+        provider: "sensenova",
+        lockouts: [],
+      });
+
+      fetchMock.mockImplementation((url) => {
+        const u = String(url);
+        if (u.includes("/api/provider-models")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                models: [
+                  {
+                    id: "sensenova-custom-imported",
+                    name: "SenseNova Imported Custom",
+                    source: "imported",
+                  },
+                  {
+                    id: "sensenova-hidden-imported",
+                    name: "SenseNova Hidden",
+                    source: "imported",
+                    isHidden: true,
+                  },
+                ],
+                modelCompatOverrides: [
+                  { modelId: "deepseek-v4-flash", isHidden: true },
+                  { id: "sensenova-6.7-flash-lite", isHidden: true },
+                  { id: "compat-scoped-hidden", hiddenModalities: { chat: true } },
+                ],
+                hiddenModelsByProvider: {
+                  sensenova: ["deepseek-v4-flash", "sensenova-hidden-imported"],
+                },
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (u.includes("/api/synced-available-models")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                providerId: "sensenova",
+                models: [
+                  { id: "sensenova-synced-1", name: "SenseNova Synced" },
+                  { id: "compat-scoped-hidden", name: "Scoped Hidden" },
+                ],
+                authoritative: false,
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      });
+
+      let el: HTMLDivElement;
+      act(() => {
+        el = render(
+          <ConnectionDetail connection={conn} receivedAt={Date.now()} onClose={() => {}} />
+        ) as HTMLDivElement;
+      });
+
+      const disableBtn = Array.from(el!.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("detail.disableModel")
+      );
+      expect(disableBtn).toBeTruthy();
+
+      act(() => {
+        disableBtn!.click();
+      });
+
+      await waitFor(() => {
+        const options = Array.from(el!.querySelectorAll("select option")).map(
+          (o) => (o as HTMLOptionElement).value
+        );
+        return options.includes("sensenova-custom-imported");
+      });
+
+      const options = Array.from(el!.querySelectorAll("select option")).map(
+        (o) => (o as HTMLOptionElement).value
+      );
+
+      // Imported model MUST be present
+      expect(options).toContain("sensenova-custom-imported");
+      // Synced model MUST be present
+      expect(options).toContain("sensenova-synced-1");
+      // Non-hidden static model MUST be present
+      expect(options).toContain("glm-5.2");
+
+      // Hidden static model via modelCompatOverrides (with .id property) MUST NOT be present
+      expect(options).not.toContain("sensenova-6.7-flash-lite");
+      // Hidden model via hiddenModalities.chat MUST NOT be present
+      expect(options).not.toContain("compat-scoped-hidden");
+      // Hidden static model via modelCompatOverrides (with .modelId property) MUST NOT be present
+      expect(options).not.toContain("deepseek-v4-flash");
+      // Hidden imported model MUST NOT be present
+      expect(options).not.toContain("sensenova-hidden-imported");
+    } finally {
+      delete (globalThis as any).__TEST_ENABLE_MODEL_FETCH__;
+    }
   });
 });
 

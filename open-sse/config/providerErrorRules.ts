@@ -17,6 +17,8 @@
  */
 
 import type { ConfiguredErrorReason } from "./errorConfig.ts";
+import { COMBO_PER_MODEL_TIMEOUT_REASON } from "../services/combo/comboAbortReasons.ts";
+import { COMBO_TARGET_TIMEOUT_CODE } from "../services/combo/targetTimeoutRunner.ts";
 
 export type ProviderErrorRule = {
   id: string;
@@ -28,6 +30,7 @@ export type ProviderErrorRule = {
 };
 
 export type ProviderErrorRuleMatch = {
+  id?: string;
   reason: ConfiguredErrorReason;
   /**
    * Intended lock scope. #10334: for a BUILT-IN catalog rule, this field is
@@ -43,7 +46,7 @@ export type ProviderErrorRuleMatch = {
    * built-in catalog rule) is tracked as a follow-up — see
    * `docs/architecture/RESILIENCE_GUIDE.md` §7.
    */
-  scope: "model" | "provider" | "connection";
+  scope: "model" | "provider" | "connection" | "provider_single_model";
   /** Optional explicit cooldown; falls back to the existing per-reason defaults. */
   cooldownMs?: number;
 };
@@ -62,29 +65,51 @@ export type ProviderErrorRuleMatch = {
 export type OperatorProviderErrorRule = {
   status: number;
   match: string;
-  scope: "model" | "provider" | "connection";
+  /**
+   * `provider_single_model`: lock ONE model across EVERY account under the
+   * provider (all connections), leaving that provider's other models and every
+   * other provider untouched. Backed by the same in-memory model-lock store as
+   * scope `"model"` (see `applyProviderSingleModelScopeLockout`), applied once
+   * per non-terminal connection.
+   */
+  scope: "model" | "provider" | "connection" | "provider_single_model";
   reason?: ConfiguredErrorReason;
   cooldownMs?: number;
 };
 
-let operatorProviderErrorRules: Record<string, OperatorProviderErrorRule[]> = {};
+const GLOBAL_RULES_KEY = "__omniroute_operator_provider_error_rules__";
+const _rulesStore = globalThis as unknown as Record<
+  string,
+  Record<string, OperatorProviderErrorRule[]> | undefined
+>;
+
+function getOperatorProviderErrorRules(): Record<string, OperatorProviderErrorRule[]> {
+  if (!_rulesStore[GLOBAL_RULES_KEY]) {
+    _rulesStore[GLOBAL_RULES_KEY] = {};
+  }
+  return _rulesStore[GLOBAL_RULES_KEY]!;
+}
 
 /**
  * Inject operator-declared rules. Called from the runtime-settings applier
  * (`applyRuntimeSettings`) once at boot and on every settings update, with the
  * value validated by the settings schema. Pass `undefined`/empty/null to clear.
  * Provider keys are lowercased so lookups are case-insensitive.
+ * Backed by globalThis so boot-time hydration in the instrumentation module graph
+ * reaches per-request handlers in the app/open-sse module graph (#5312-class).
  */
 export function setOperatorProviderErrorRules(
   rules: Record<string, OperatorProviderErrorRule[]> | undefined | null
 ): void {
-  operatorProviderErrorRules = {};
-  if (!rules) return;
-  for (const [provider, list] of Object.entries(rules)) {
-    if (Array.isArray(list) && list.length > 0) {
-      operatorProviderErrorRules[provider.toLowerCase()] = list;
+  const next: Record<string, OperatorProviderErrorRule[]> = {};
+  if (rules) {
+    for (const [provider, list] of Object.entries(rules)) {
+      if (Array.isArray(list) && list.length > 0) {
+        next[provider.toLowerCase()] = list;
+      }
     }
   }
+  _rulesStore[GLOBAL_RULES_KEY] = next;
 }
 
 // ─── Opencode ───────────────────────────────────────────────────────────────────
@@ -603,26 +628,65 @@ function usesFullTextRuleBody(key: string): boolean {
  */
 export function hasOperatorRuleForProvider(provider: string | null | undefined): boolean {
   if (!provider) return false;
-  const rules = operatorProviderErrorRules[provider.toLowerCase()];
+  const rules = getOperatorProviderErrorRules()[provider.toLowerCase()];
   return !!rules && rules.length > 0;
+}
+
+function structuredErrorCodeText(structuredError: unknown): string {
+  if (!structuredError || typeof structuredError !== "object") return "";
+  const err = structuredError as Record<string, unknown>;
+  const inner = (err.error && typeof err.error === "object" ? err.error : err) as Record<
+    string,
+    unknown
+  >;
+  const parts: string[] = [];
+  for (const key of ["code", "type"]) {
+    const val = inner[key];
+    if (typeof val === "string" && val.length > 0) {
+      const trimmed = val.trim();
+      parts.push(trimmed);
+      // Combo per-model timeout: the runtime emits error.code="combo_target_timeout"
+      // and error.type="combo_per_model_timeout" (from COMBO_TARGET_TIMEOUT_CODE and
+      // COMBO_PER_MODEL_TIMEOUT_REASON). Alias them both so an operator rule
+      // matching on either identifier (or with a dash) catches the failure.
+      if (trimmed === COMBO_TARGET_TIMEOUT_CODE) {
+        parts.push(COMBO_PER_MODEL_TIMEOUT_REASON);
+      } else if (trimmed === COMBO_PER_MODEL_TIMEOUT_REASON) {
+        parts.push(COMBO_TARGET_TIMEOUT_CODE);
+      }
+    }
+  }
+  return parts.join(" ");
 }
 
 /**
  * Resolve the body handed to getProviderErrorRuleMatch inside
- * checkFallbackError: full error text for FULL_TEXT_RULE_PROVIDERS or any
- * provider with an operator-declared rule, the structured error for everyone
- * else.
+ * checkFallbackError: for FULL_TEXT_RULE_PROVIDERS the raw error text; for any
+ * provider with an operator-declared rule the error text PLUS the structured
+ * `code`/`type`; the structured error for everyone else.
+ *
+ * The operator-rule case is deliberately wider than the built-in FULL_TEXT one:
+ * an operator rule's `match` is a substring of the error body, and the
+ * canonical identifier for a synthetic OmniRoute failure — `combo_target_timeout`
+ * for a per-model combo timeout — lives ONLY in the structured `code`/`type`.
+ * Its message ("Model <x> timed out") never carries that identifier, so a rule
+ * keyed on the code could otherwise never match. Appending the code/type keeps
+ * the message-substring matching that already worked (`timed out`, ...) intact
+ * while making the structured identifier addressable.
  */
 export function resolveRuleMatchBody(
   provider: string | null | undefined,
   structuredError: unknown,
   errorText: string | null | undefined
 ): unknown {
-  if (
-    provider &&
-    (usesFullTextRuleBody(provider.toLowerCase()) || hasOperatorRuleForProvider(provider)) &&
-    errorText
-  ) {
+  if (!provider) return structuredError ?? null;
+  const key = provider.toLowerCase();
+  if (hasOperatorRuleForProvider(key)) {
+    if (!errorText) return structuredError ?? null;
+    const codeText = structuredErrorCodeText(structuredError);
+    return codeText ? `${errorText} ${codeText}` : errorText;
+  }
+  if (usesFullTextRuleBody(key) && errorText) {
     return errorText;
   }
   return structuredError ?? null;
@@ -647,7 +711,7 @@ export function getProviderErrorRuleMatch(
   // rule for a provider without editing this file. `operatorRules` is the
   // injected source (tests / direct callers); when omitted we fall back to the
   // settings-backed cache populated by `setOperatorProviderErrorRules`.
-  const opRules = (operatorRules ?? operatorProviderErrorRules)?.[key];
+  const opRules = (operatorRules ?? getOperatorProviderErrorRules())?.[key];
   if (opRules && opRules.length > 0) {
     const text = typeof body === "string" ? body : JSON.stringify(body ?? "");
     const lowered = text.toLowerCase();
@@ -701,23 +765,34 @@ export function getProviderErrorRuleMatch(
  */
 export function parseResetCountdownMs(text: string): number | null {
   if (typeof text !== "string" || text.length === 0) return null;
+  const compositeMatch = text.match(/reset\s+after\s+(\d+)m(?:\s*(\d+)s)?/i);
+  if (compositeMatch) {
+    const m = Number(compositeMatch[1]) || 0;
+    const s = Number(compositeMatch[2]) || 0;
+    const total = m * 60_000 + s * 1_000;
+    if (total > 0) return total;
+  }
   const match = text.match(
-    /resets?\s+in\s+(\d+)\s+(day|days|hour|hours|minute|minutes|second|seconds)\b/
+    /(?:resets?\s+in|reset\s+after)\s+(\d+)\s*(day|days|hour|hours|minute|minutes|second|seconds|m|s|h|d)?\b/i
   );
   if (!match) return null;
   const n = Number(match[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
-  const unit = match[2];
+  const unit = (match[2] || "").toLowerCase();
   switch (unit) {
+    case "d":
     case "day":
     case "days":
       return n * 86_400_000;
+    case "h":
     case "hour":
     case "hours":
       return n * 3_600_000;
+    case "m":
     case "minute":
     case "minutes":
       return n * 60_000;
+    case "s":
     case "second":
     case "seconds":
       return n * 1_000;

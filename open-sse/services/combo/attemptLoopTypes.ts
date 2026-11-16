@@ -39,6 +39,8 @@ export type AttemptLoopState = {
   exhaustedProviders: Set<string>;
   exhaustedConnections: Set<string>;
   transientRateLimitedProviders: Set<string>;
+  /** rule scope='provider_single_model' — skip set keyed `${provider}:${rawModel}`. */
+  exhaustedProviderModels?: Set<string>;
   /** Durable exhaustion carried across set retries (quota, credits, auth). */
   durableExhaustedProviders?: Set<string>;
   /** Durable exhaustion carried across set retries, keyed `provider:connectionId`. */

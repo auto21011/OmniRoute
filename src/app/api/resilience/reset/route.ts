@@ -28,10 +28,14 @@ export async function POST(request: Request) {
       await import("@omniroute/open-sse/services/accountFallback.ts");
     clearAllModelLockouts();
 
+    // Also clear persisted connection cooldowns and streaks
+    const { releaseAllConnections } = await import("@/domain/connectionResilience");
+    await releaseAllConnections({ resetBreaker: false, clearLockouts: false });
+
     return NextResponse.json({
       ok: true,
       resetCount,
-      message: `Reset ${resetCount} circuit breaker(s) and model lockouts`,
+      message: `Reset ${resetCount} circuit breaker(s), connection cooldowns, and model lockouts`,
     });
   } catch (err: unknown) {
     console.error("[API] POST /api/resilience/reset error:", err);

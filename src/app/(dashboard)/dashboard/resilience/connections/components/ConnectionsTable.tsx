@@ -8,12 +8,14 @@ import type { DataTableColumn, DataTableRow } from "@/shared/components/DataTabl
 import type { ConnectionState } from "@/types/resilience";
 import { describeProviderAvailability } from "@/lib/providerAvailability";
 import { formatRemaining } from "@/shared/utils/formatRemaining";
+import { useNotificationStore } from "@/store/notificationStore";
 import ConnectionDetail from "./ConnectionDetail";
 
 interface ConnectionsTableProps {
   connections: ConnectionState[];
   receivedAt: number; // client fetch receive time (immune to clock skew)
   degraded: string[]; // meta.degraded from API (to show "Unknown" when breaker data absent)
+  onRefresh?: () => void;
 }
 
 // Module-scoped memoized countdown cell: hoisted to avoid remount on every poll
@@ -30,7 +32,7 @@ function StatusWithAvailability({
   return (
     <div className="flex flex-col gap-1">
       {badge}
-      <span className="text-xs text-text-muted">
+      <span className="text-xs text-text-secondary">
         {describeProviderAvailability(connection.availability)}
       </span>
     </div>
@@ -63,12 +65,43 @@ export default function ConnectionsTable({
   connections,
   receivedAt,
   degraded,
+  onRefresh,
 }: ConnectionsTableProps) {
   const t = useTranslations("resilienceConnections");
+  const notify = useNotificationStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [clearingId, setClearingId] = useState<string | null>(null);
   // Derive the effective selected id during render (closes detail when connection disappears)
   const effectiveSelectedId =
     selectedId && connections.some((c) => c.id === selectedId) ? selectedId : null;
+
+  const handleClearCooldown = async (e: React.MouseEvent, connection: ConnectionState) => {
+    e.stopPropagation();
+    setClearingId(connection.id);
+    try {
+      const res = await fetch("/api/resilience/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connectionId: connection.id,
+          provider: connection.provider,
+          resetBreaker: true,
+          clearLockouts: true,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
+      }
+      notify.success(t("table.clearCooldownSuccess"));
+      onRefresh?.();
+    } catch (err) {
+      console.error("[ConnectionsTable] Failed to clear cooldown:", err);
+      notify.error(err instanceof Error ? err.message : "Failed to clear cooldown");
+    } finally {
+      setClearingId(null);
+    }
+  };
 
   const columns: DataTableColumn[] = [
     { key: "status", label: t("table.status") },
@@ -79,6 +112,7 @@ export default function ConnectionsTable({
     { key: "cooldown", label: t("table.cooldown") },
     { key: "lastError", label: t("table.lastError") },
     { key: "lockouts", label: t("table.lockouts") },
+    { key: "actions", label: t("table.actions") },
   ];
 
   return (
@@ -152,21 +186,79 @@ export default function ConnectionsTable({
               }
               return <StatusWithAvailability badge={badge} connection={r} />;
             }
-            case "id":
-              return <span>{r.id.length > 8 ? `${r.id.slice(0, 8)}...` : r.id}</span>;
+            case "id": {
+              const displayId =
+                r.name && r.name.trim()
+                  ? r.name.trim()
+                  : r.id.length > 8
+                    ? `${r.id.slice(0, 8)}...`
+                    : r.id;
+              return (
+                <span title={r.id} style={{ cursor: "help" }}>
+                  {displayId}
+                </span>
+              );
+            }
             case "cooldown":
-              // memoized: isolates the 1s tick to a single cell
               return <CountdownCell connection={r} receivedAt={receivedAt} />;
+              {
+                /* memoized: isolates 1s tick to single cell */
+              }
             case "lastError":
               return <span>{r.lastErrorType ?? t("table.never")}</span>;
             case "lockouts":
-              return <span>{r.lockouts.length}</span>;
-            case "provider":
-              return <span>{r.provider}</span>;
+              if (r.lockouts.length > 0) {
+                return (
+                  <Badge variant="warning" size="sm">
+                    {r.lockouts.length}
+                  </Badge>
+                );
+              }
+              return <span style={{ color: "var(--color-text-muted)" }}>0</span>;
+            case "provider": {
+              const displayLabel = r.providerName || r.provider;
+              const hasFriendlyName = Boolean(r.providerName && r.providerName !== r.provider);
+              return (
+                <span title={r.provider} style={{ cursor: hasFriendlyName ? "help" : undefined }}>
+                  {displayLabel}
+                </span>
+              );
+            }
             case "authType":
               return <span>{r.authType}</span>;
             case "backoffLevel":
               return <span>{r.backoffLevel}</span>;
+            case "actions": {
+              const isDegradedOrCooling =
+                r.isCoolingDown ||
+                r.rateLimitedUntil != null ||
+                r.connectionStatus === "cooling_down" ||
+                r.connectionStatus === "terminal" ||
+                (r.breaker && r.breaker.state !== "CLOSED") ||
+                r.lockouts.length > 0;
+              const isClearing = clearingId === r.id;
+              if (!isDegradedOrCooling) return <span>-</span>;
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => void handleClearCooldown(e, r)}
+                  disabled={isClearing}
+                  style={{
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    borderRadius: "4px",
+                    border: "1px solid var(--color-border)",
+                    background: "var(--color-bg-subtle, rgba(0,0,0,0.05))",
+                    color: "var(--color-warning, #d97706)",
+                    cursor: isClearing ? "not-allowed" : "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {isClearing ? t("table.clearingCooldown") : t("table.clearCooldown")}
+                </button>
+              );
+            }
             default:
               return null;
           }
@@ -177,6 +269,7 @@ export default function ConnectionsTable({
           connection={connections.find((c) => c.id === effectiveSelectedId) ?? undefined}
           receivedAt={receivedAt}
           onClose={() => setSelectedId(null)}
+          onRefresh={onRefresh}
         />
       )}
     </>

@@ -1778,7 +1778,7 @@ export function checkFallbackError(
    * persistence layer can honor it instead of re-deriving scope from
    * hasPerModelQuota(). Populated ONLY when honorsRuleLockScope(provider) is true;
    * always undefined for every other provider, so existing consumers are unaffected. */
-  ruleScope?: "model" | "provider" | "connection";
+  ruleScope?: "model" | "provider" | "connection" | "provider_single_model";
 } {
   // #10360: an executor-result contract violation is OUR bug, not the provider's.
   // Retrying reproduces it verbatim, and cooling the connection down (or tripping
@@ -1968,6 +1968,29 @@ export function checkFallbackError(
       reason,
     };
   }
+
+  const resolveProviderRuleFallback = () => {
+    if (!provider) return null;
+    const match = getProviderErrorRuleMatch(
+      provider,
+      status,
+      headers,
+      resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+    );
+    if (!match) return null;
+    const scaled = getScaledBaseCooldown(match.reason as RateLimitReasonValue, backoffLevel);
+    const ruleCooldownMs = match.cooldownMs;
+    const ruleScope = honorsRuleLockScope(provider) ? match.scope : undefined;
+    return {
+      shouldFallback: true,
+      cooldownMs: ruleCooldownMs ?? scaled.cooldownMs,
+      baseCooldownMs: ruleCooldownMs ?? scaled.baseCooldownMs,
+      configuredCooldownMs: ruleCooldownMs,
+      newBackoffLevel: ruleCooldownMs !== undefined ? 0 : scaled.newBackoffLevel,
+      reason: match.reason,
+      ruleScope,
+    };
+  };
 
   const isRateLimitStatus = status === HTTP_STATUS.RATE_LIMITED;
   const preserveQuota429 = shouldPreserveQuotaSignals(provider, errorText);
@@ -2208,19 +2231,13 @@ export function checkFallbackError(
       return { shouldFallback: false, cooldownMs: 0, reason: RateLimitReason.UNKNOWN };
     }
 
-    // #10334 — agentrouter EXCLUSIVE: consult the provider rules BEFORE the
-    // apikey-FORBIDDEN early-return below, so a recognized 403 body (e.g.
-    // "无权访问模型") carries the rule's declared reason/cooldown/scope instead of
-    // the generic short auth cooldown. Gated on honorsRuleLockScope — for any
-    // other provider this block is a no-op and the early-return stays identical.
-    if (status === HTTP_STATUS.FORBIDDEN && provider && honorsRuleLockScope(provider)) {
-      const forbiddenMatch = getProviderErrorRuleMatch(
-        provider,
-        status,
-        headers,
-        resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
-      );
-      if (forbiddenMatch) return ruleScopedResult(forbiddenMatch);
+    // Provider-specific rules (operator-declared in settings or catalog in
+    // providerRuleRegistry) are MORE SPECIFIC than generic status/error handling
+    // (e.g. apikey-FORBIDDEN early-return below, configuredRule, 400 BAD_REQUEST, 5xx).
+    // Consult them here so a rule-first fallback takes precedence!
+    const providerRuleFallback = resolveProviderRuleFallback();
+    if (providerRuleFallback) {
+      return providerRuleFallback;
     }
     // 429 reading "endpoint is unavailable" fails over to the rule-owned model cooldown.
     if (status === HTTP_STATUS.RATE_LIMITED && provider) {
@@ -2247,6 +2264,12 @@ export function checkFallbackError(
   // Concurrency-limit 429: healthy-but-busy account — fail over without backoff.
   const concurrencyFallback = buildConcurrencyLimitFallback(status, errorStr, getUpstreamRetryHint);
   if (concurrencyFallback) return concurrencyFallback;
+
+  // When errorText was null/empty, check provider rules here before configuredRule
+  const unTextedProviderFallback = resolveProviderRuleFallback();
+  if (unTextedProviderFallback) {
+    return unTextedProviderFallback;
+  }
 
   const configuredRule =
     isRateLimitStatus && !preserveQuota429

@@ -9,6 +9,7 @@ import { useTranslations } from "next-intl";
 import AutoDisableCard from "./AutoDisableCard";
 import ModelLockoutCard from "./ModelLockoutCard";
 import TokenRefreshBreakerCard, { type TokenRefreshBreakerValue } from "./TokenRefreshBreakerCard";
+import ProviderErrorRulesCard from "./ProviderErrorRulesCard";
 import { NumberField, BooleanField } from "./ResilienceFields";
 import { throwIfResilienceSaveFailed } from "./resilienceSaveError";
 
@@ -1271,6 +1272,7 @@ export default function ResilienceTab() {
         />
       )}
       <ModelLockoutCard />
+      <ProviderErrorRulesCard />
     </div>
   );
 }

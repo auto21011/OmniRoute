@@ -47,6 +47,7 @@ import { resolveProviderId } from "@/shared/constants/providers";
 import { LOCAL_MODEL_COOLDOWN_HEADER } from "../../utils/localCooldownHeader.ts";
 import { isExplicitModelCapacityFailure } from "../accountFallback/perModelFailureScope.ts";
 import { isModelScopedAccessDenial } from "../accountFallback/modelScopedAccessDenial.ts";
+import { honorsRuleLockScope } from "../../config/providerErrorRules.ts";
 import type { ComboLogger, ResolvedComboTarget } from "./types.ts";
 
 // Connection-level failure statuses: the provider connection itself is likely bad (upstream
@@ -120,6 +121,14 @@ export type ComboExhaustionSets = {
   exhaustedProviders: Set<string>;
   exhaustedConnections: Set<string>;
   transientRateLimitedProviders: Set<string>;
+  /**
+   * Provider-single-model skip set (rule scope='provider_single_model'), keyed
+   * `${provider}:${rawModel}`. Unlike `exhaustedProviders` (which skips ALL models
+   * of the provider) this skips only that model, across every account of the
+   * provider. Optional so existing set constructors stay valid; dispatchers
+   * always populate it.
+   */
+  exhaustedProviderModels?: Set<string>;
 };
 
 export type ApplyComboTargetExhaustionOptions = {
@@ -127,8 +136,10 @@ export type ApplyComboTargetExhaustionOptions = {
   fallbackResult: Parameters<typeof isProviderExhaustedReason>[0] & {
     /** #10334 — agentrouter + opencode family; see isAgentrouterConnectionQuotaScope
      * (src/sse/services/auth.ts). Populated only for providers in
-     * HONORS_RULE_LOCK_SCOPE_PROVIDERS (agentrouter + opencode family). */
-    ruleScope?: "model" | "provider" | "connection";
+     * HONORS_RULE_LOCK_SCOPE_PROVIDERS (agentrouter + opencode family) or any
+     * provider with an operator-declared rule. `provider_single_model` locks one
+     * model across every account under the provider. */
+    ruleScope?: "model" | "provider" | "connection" | "provider_single_model";
     permanent?: boolean;
     cooldownMs?: number;
     usedUpstreamRetryHint?: boolean;
@@ -299,7 +310,53 @@ export function applyComboTargetExhaustion(
   // force-allowed for a later leg on the same provider — a remaining leg
   // can now resolve to "no credentials available" instead of retrying a
   // rate-limited sibling account, which is the intended, safer outcome.
-  if (isAgentrouterConnectionQuotaScope(provider, opts.fallbackResult)) {
+  // Provider-scoped rule (e.g. operator rule with scope='provider'):
+  // exhaust the entire provider for remaining targets this request.
+  if (
+    opts.fallbackResult?.ruleScope === "provider" &&
+    provider &&
+    provider !== "unknown" &&
+    honorsRuleLockScope(provider)
+  ) {
+    markProviderQuotaExhaustion(provider, opts);
+    return {
+      ...derived,
+      providerExhausted: true,
+      durableExhaustion: { scope: "provider", provider },
+    };
+  }
+
+  // Provider-single-model-scoped rule (operator rule with
+  // scope='provider_single_model'): skip ONLY this model on the provider's
+  // remaining targets this request — sibling models on the same provider stay
+  // eligible (unlike scope='provider'). Keyed `${provider}:${rawModel}` and read
+  // back by getExhaustedTargetSkipReason.
+  if (
+    opts.fallbackResult?.ruleScope === "provider_single_model" &&
+    provider &&
+    provider !== "unknown" &&
+    honorsRuleLockScope(provider) &&
+    opts.rawModel
+  ) {
+    if (sets.exhaustedProviderModels) {
+      sets.exhaustedProviderModels.add(`${provider}:${opts.rawModel}`);
+    }
+    log.info(
+      tag,
+      `Provider ${provider} model ${opts.rawModel} locked provider-wide (rule scope=provider_single_model) — marking for skip on remaining targets`
+    );
+    return { ...derived, providerExhausted: true };
+  }
+
+  // Connection-scoped rule (agentrouter quota or operator rule with scope='connection')
+  if (
+    isAgentrouterConnectionQuotaScope(provider, opts.fallbackResult) ||
+    (opts.fallbackResult?.ruleScope === "connection" &&
+      provider &&
+      honorsRuleLockScope(provider) &&
+      !opts.fallbackResult.permanent &&
+      !opts.fallbackResult.creditsExhausted)
+  ) {
     markAgentrouterConnectionQuotaExhaustion(effectiveTarget, { sets, log, tag });
     return { ...derived, providerExhausted: true, durableExhaustion: durableMark };
   }

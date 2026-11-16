@@ -41,6 +41,7 @@ import {
   getHandoff,
 } from "../../../src/lib/db/contextHandoffs.ts";
 import { resolveModelLockoutSettings } from "../../../src/lib/resilience/modelLockoutSettings";
+import { applyProviderSingleModelScopeLockout } from "../../../src/sse/services/providerScopeCooldown.ts";
 import { fetchCodexQuota } from "../codexQuotaFetcher.ts";
 import { emit } from "../../../src/lib/events/eventBus";
 import { notifyWebhookEvent } from "../../../src/lib/webhookDispatcher";
@@ -1190,7 +1191,39 @@ export async function executeTargetAttempt(
         !isConnectionScopedClaudeQuota
       ) {
         const mlSettings = resolveModelLockoutSettings(deps.settings);
-        if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
+        if (fallbackResult.ruleScope === "provider_single_model") {
+          await applyProviderSingleModelScopeLockout({
+            provider,
+            model: rawModel,
+            status: result.status,
+            fallbackResult,
+            profile: profile ?? null,
+            maxCooldownMs: mlSettings.maxCooldownMs,
+          });
+          lockoutRecorded = true;
+        } else if (fallbackResult.ruleScope === "model") {
+          const targetConnId = targetWithConnection.connectionId || "";
+          const ruleCooldownMs =
+            typeof fallbackResult.cooldownMs === "number" && fallbackResult.cooldownMs > 0
+              ? fallbackResult.cooldownMs
+              : mlSettings.baseCooldownMs;
+          const ruleReason =
+            fallbackResult.reason || classifyLockoutReason(result.status, errorText);
+          recordModelLockoutFailure(
+            provider,
+            targetConnId,
+            rawModel,
+            ruleReason,
+            result.status,
+            ruleCooldownMs,
+            profile,
+            {
+              exactCooldownMs: ruleCooldownMs,
+              maxCooldownMs: mlSettings.maxCooldownMs,
+            }
+          );
+          lockoutRecorded = true;
+        } else if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
           recordModelLockoutFailure(
             provider,
             targetWithConnection.connectionId || "",
@@ -1288,7 +1321,36 @@ export async function executeTargetAttempt(
       !isConnectionScopedClaudeQuota
     ) {
       const mlSettings = resolveModelLockoutSettings(deps.settings);
-      if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
+      if (fallbackResult.ruleScope === "provider_single_model") {
+        await applyProviderSingleModelScopeLockout({
+          provider,
+          model: rawModel,
+          status: result.status,
+          fallbackResult,
+          profile: profile ?? null,
+          maxCooldownMs: mlSettings.maxCooldownMs,
+        });
+      } else if (fallbackResult.ruleScope === "model") {
+        const targetConnId = targetWithConnection.connectionId || "";
+        const ruleCooldownMs =
+          typeof fallbackResult.cooldownMs === "number" && fallbackResult.cooldownMs > 0
+            ? fallbackResult.cooldownMs
+            : mlSettings.baseCooldownMs;
+        const ruleReason = fallbackResult.reason || classifyLockoutReason(result.status, errorText);
+        recordModelLockoutFailure(
+          provider,
+          targetConnId,
+          rawModel,
+          ruleReason,
+          result.status,
+          ruleCooldownMs,
+          profile,
+          {
+            exactCooldownMs: ruleCooldownMs,
+            maxCooldownMs: mlSettings.maxCooldownMs,
+          }
+        );
+      } else if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
         recordModelLockoutFailure(
           provider,
           targetWithConnection.connectionId || "",

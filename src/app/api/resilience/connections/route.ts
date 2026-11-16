@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getRawProviderConnections, getProviderConnectionsCount } from "@/lib/db/providers";
+import {
+  getRawProviderConnections,
+  getProviderConnectionsCount,
+  getProviderNodes,
+} from "@/lib/db/providers";
 import { getAllCircuitBreakerStatuses } from "@/shared/utils/circuitBreaker";
 import { resolveProviderId } from "@/shared/constants/providers";
 import { TERMINAL_CONNECTION_STATUSES } from "@/lib/quota/connectionRecovery";
@@ -20,6 +24,15 @@ import type {
 } from "@/types/resilience";
 import { readRotationSnapshot } from "@omniroute/open-sse/services/rotationAttribution";
 import { isRotationAttributionEnabled } from "@/shared/utils/featureFlags";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import {
+  releaseSingleConnection,
+  releaseProviderConnections,
+  releaseAllConnections,
+  resetCircuitBreakerByName,
+  tripCircuitBreakerByName,
+  setConnectionCooldown,
+} from "@/domain/connectionResilience";
 
 // Explicit column whitelist -- getRawProviderConnections() DEFAULTS TO SELECT *,
 // so passing columns is MANDATORY to avoid leaking api_key, access_token,
@@ -96,10 +109,12 @@ function toConnectionState(
   breakersMap: Map<string, BreakerWithHistory>,
   lockoutsMap: Map<string, ModelLockoutInfo[]>,
   now: number, // server timestamp captured before fetch (avoids drift)
-  rotationByConnection?: Map<string, RotationAccountState[] | null>
+  rotationByConnection?: Map<string, RotationAccountState[] | null>,
+  providerNodesMap?: Map<string, string>
 ): ConnectionState {
   // getRawProviderConnections returns camelCase keys (via rowToCamel)
   const provider = String(row.provider ?? "");
+  const providerName = providerNodesMap?.get(provider) ?? null;
   const breaker = breakersMap.get(resolveProviderId(provider)) ?? null;
   const lockouts = lockoutsMap.get(String(row.id ?? "")) ?? [];
   const testStatus = row.testStatus ? String(row.testStatus).trim().toLowerCase() : null; // normalize to match TERMINAL_CONNECTION_STATUSES
@@ -121,6 +136,7 @@ function toConnectionState(
   return {
     id: String(row.id ?? ""),
     provider,
+    providerName,
     name: row.name != null && row.name !== "" ? String(row.name) : null,
     authType: String(row.authType ?? ""),
     priority: Number(row.priority ?? 0),
@@ -271,8 +287,31 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+    const providerNodesMap = new Map<string, string>();
+    try {
+      const nodes = (await getProviderNodes()) as Array<{
+        id?: unknown;
+        name?: unknown;
+        prefix?: unknown;
+      }>;
+      for (const node of nodes) {
+        const id = typeof node.id === "string" ? node.id.trim() : "";
+        const name =
+          typeof node.name === "string" && node.name.trim()
+            ? node.name.trim()
+            : typeof node.prefix === "string" && node.prefix.trim()
+              ? node.prefix.trim()
+              : "";
+        if (id && name) {
+          providerNodesMap.set(id, name);
+        }
+      }
+    } catch (err) {
+      console.warn("[API] resilience/connections failed to load provider nodes:", err);
+    }
+
     const connections = rawConnections.map((row) =>
-      toConnectionState(row, breakersMap, lockoutsMap, now, rotationByConnection)
+      toConnectionState(row, breakersMap, lockoutsMap, now, rotationByConnection, providerNodesMap)
     );
     // Total count (separate query; falls back to connections.length on failure)
     let totalConnections = connections.length;
@@ -316,4 +355,112 @@ export async function GET(req: NextRequest) {
     console.error("[API] resilience/connections unexpected error:", err);
     return NextResponse.json(buildErrorBody(500, sanitizeErrorMessage(err)), { status: 500 });
   }
+}
+
+const releaseMutationSchema = z.object({
+  connectionId: z.string().trim().min(1).optional(),
+  provider: z.string().trim().min(1).optional(),
+  all: z.boolean().optional(),
+  resetBreaker: z.boolean().optional(),
+  clearLockouts: z.boolean().optional(),
+  action: z.enum(["release_cooldown", "reset_breaker", "set_cooldown", "trip_breaker"]).optional(),
+  breakerName: z.string().trim().min(1).optional(),
+  durationMs: z.number().positive().optional(),
+  reason: z.string().trim().min(1).optional(),
+});
+
+async function handleReleaseMutation(req: NextRequest) {
+  const authError = await requireManagementAuth(req);
+  if (authError) return authError;
+
+  try {
+    const rawBody = await req.json().catch(() => ({}));
+    const parseResult = releaseMutationSchema.safeParse(rawBody);
+    if (!parseResult.success) {
+      return NextResponse.json(
+        buildErrorBody(400, parseResult.error.issues[0]?.message ?? "Invalid request body"),
+        { status: 400 }
+      );
+    }
+    const data = parseResult.data;
+
+    if (data.action === "trip_breaker") {
+      const targetBreaker = data.breakerName || data.provider;
+      if (!targetBreaker) {
+        return NextResponse.json(
+          buildErrorBody(400, "breakerName or provider is required for trip_breaker"),
+          { status: 400 }
+        );
+      }
+      const tripped = tripCircuitBreakerByName(targetBreaker, data.reason || "manual_trip");
+      return NextResponse.json({ ok: true, tripped, breakerName: targetBreaker });
+    }
+
+    if (data.action === "set_cooldown") {
+      if (!data.connectionId) {
+        return NextResponse.json(buildErrorBody(400, "connectionId is required for set_cooldown"), {
+          status: 400,
+        });
+      }
+      const durationMs = data.durationMs || 300000;
+      const result = await setConnectionCooldown(
+        data.connectionId,
+        durationMs,
+        data.reason || "manual_cooldown"
+      );
+      return NextResponse.json(result);
+    }
+
+    if (data.action === "reset_breaker" || data.breakerName) {
+      const targetBreaker = data.breakerName || data.provider;
+      if (!targetBreaker) {
+        return NextResponse.json(
+          buildErrorBody(400, "breakerName or provider is required for reset_breaker"),
+          { status: 400 }
+        );
+      }
+      const reset = resetCircuitBreakerByName(targetBreaker);
+      return NextResponse.json({ ok: true, reset, breakerName: targetBreaker });
+    }
+
+    if (data.all) {
+      const result = await releaseAllConnections({
+        resetBreaker: data.resetBreaker,
+        clearLockouts: data.clearLockouts,
+      });
+      return NextResponse.json(result);
+    }
+
+    if (data.connectionId) {
+      const result = await releaseSingleConnection(data.connectionId, data.provider, {
+        resetBreaker: data.resetBreaker,
+        clearLockouts: data.clearLockouts,
+      });
+      return NextResponse.json(result);
+    }
+
+    if (data.provider) {
+      const result = await releaseProviderConnections(data.provider, {
+        resetBreaker: data.resetBreaker,
+        clearLockouts: data.clearLockouts,
+      });
+      return NextResponse.json(result);
+    }
+
+    return NextResponse.json(
+      buildErrorBody(400, "Must specify connectionId, provider, or all: true"),
+      { status: 400 }
+    );
+  } catch (err) {
+    console.error("[API] resilience/connections mutation error:", err);
+    return NextResponse.json(buildErrorBody(500, sanitizeErrorMessage(err)), { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  return handleReleaseMutation(req);
+}
+
+export async function DELETE(req: NextRequest) {
+  return handleReleaseMutation(req);
 }

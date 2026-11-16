@@ -334,7 +334,15 @@ export function buildTargetTimeoutRunner(deps: {
             // already won the race; resolve cleanly without leaking err.message.
             return new Response(null, { status: 599 });
           }
-          return errorResponse(502, err?.message ?? "Upstream model error");
+          const resp = errorResponse(502, err?.message ?? "Upstream model error");
+          const connId =
+            target && "connectionId" in target && typeof target.connectionId === "string"
+              ? target.connectionId
+              : undefined;
+          if (connId) {
+            resp.headers.set("X-OmniRoute-Selected-Connection-Id", connId);
+          }
+          return resp;
         }),
         timeoutPromise,
       ]).catch((raceErr) => {
@@ -344,7 +352,15 @@ export function buildTargetTimeoutRunner(deps: {
           "COMBO",
           `Unexpected rejection in combo timeout race for ${modelStr}: ${detail}`
         );
-        return errorResponse(502, `Combo timeout dispatch error: ${detail}`);
+        const resp = errorResponse(502, `Combo timeout dispatch error: ${detail}`);
+        const connId =
+          target && "connectionId" in target && typeof target.connectionId === "string"
+            ? target.connectionId
+            : undefined;
+        if (connId) {
+          resp.headers.set("X-OmniRoute-Selected-Connection-Id", connId);
+        }
+        return resp;
       });
     } finally {
       clearTimeout(timeoutId);

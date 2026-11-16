@@ -7,6 +7,11 @@ import {
   honorsRuleLockScope,
   type OperatorProviderErrorRule,
 } from "../../open-sse/config/providerErrorRules.ts";
+import { checkFallbackError } from "../../open-sse/services/accountFallback.ts";
+import {
+  applyComboTargetExhaustion,
+  type ComboExhaustionSets,
+} from "../../open-sse/services/combo/targetExhaustion.ts";
 
 describe("operator error rules", () => {
   beforeEach(() => {
@@ -97,12 +102,34 @@ describe("operator error rules", () => {
   // persistence layer. Declaring an operator rule for a provider must be
   // sufficient by itself — no separate allowlist entry required.
   describe("operator rule bypasses the built-in allowlists", () => {
-    it("resolveRuleMatchBody hands the full error text once an operator rule exists for the provider", () => {
+    it("resolveRuleMatchBody hands the error text plus the structured code/type once an operator rule exists", () => {
       setOperatorProviderErrorRules({
         acme: [{ status: 404, match: "model withdrawn", scope: "model" }],
       });
-      const body = resolveRuleMatchBody("acme", { code: "not_found" }, "Model withdrawn upstream");
-      assert.equal(body, "Model withdrawn upstream");
+      const body = resolveRuleMatchBody(
+        "acme",
+        { code: "not_found", type: "invalid_request_error" },
+        "Model withdrawn upstream"
+      );
+      assert.equal(body, "Model withdrawn upstream not_found invalid_request_error");
+    });
+
+    it("operator rule matches the structured code when the message does not carry it", () => {
+      // Mirrors the combo per-model timeout: the 504 body's `error.code`/`error.type`
+      // is `combo_target_timeout`, but the message is only "Model <x> timed out".
+      // Before this fix the matcher only ever saw the message, so a rule keyed on
+      // the canonical identifier could never fire.
+      setOperatorProviderErrorRules({
+        nvidia: [{ status: 504, match: "combo_target_timeout", scope: "provider_single_model" }],
+      });
+      const body = resolveRuleMatchBody(
+        "nvidia",
+        { code: "combo_target_timeout", type: "combo_target_timeout" },
+        "Model nvidia/z-ai/glm-5.3 timed out"
+      );
+      const m = getProviderErrorRuleMatch("nvidia", 504, null, body);
+      assert.ok(m, "operator rule should match the structured combo_target_timeout code");
+      assert.equal(m.scope, "provider_single_model");
     });
 
     it("resolveRuleMatchBody keeps returning the structured error for a provider with no operator rule", () => {
@@ -130,6 +157,205 @@ describe("operator error rules", () => {
       const m = getProviderErrorRuleMatch("acme", 404, null, body);
       assert.ok(m, "operator rule should match once resolveRuleMatchBody hands it the raw text");
       assert.equal(m.scope, "model");
+    });
+
+    it("a 504 operator rule keyed on combo_target_timeout surfaces provider_single_model end to end", () => {
+      setOperatorProviderErrorRules({
+        nvidia: [
+          {
+            status: 504,
+            match: "combo_target_timeout",
+            scope: "provider_single_model",
+            reason: "server_error",
+            cooldownMs: 300_000,
+          },
+        ],
+      });
+      // This is exactly what the combo path hands checkFallbackError for a
+      // per-model timeout: message from the synthetic body's error.message, and
+      // structuredError from the body's error.code/error.type.
+      const fb = checkFallbackError(
+        504,
+        "Model nvidia/z-ai/glm-5.3 timed out",
+        0,
+        "z-ai/glm-5.3",
+        "nvidia",
+        null,
+        null,
+        { code: "combo_target_timeout", type: "combo_target_timeout" }
+      );
+      assert.equal(fb.shouldFallback, true);
+      assert.equal(fb.ruleScope, "provider_single_model");
+    });
+
+    it("a 504 operator rule keyed on combo-per-model-timeout surfaces provider_single_model end to end", () => {
+      setOperatorProviderErrorRules({
+        nvidia: [
+          {
+            status: 504,
+            match: "combo-per-model-timeout",
+            scope: "provider_single_model",
+            reason: "model_capacity",
+            cooldownMs: 900_000,
+          },
+        ],
+      });
+      const fb = checkFallbackError(
+        504,
+        "Model nvidia/z-ai/glm-5.3 timed out",
+        0,
+        "z-ai/glm-5.3",
+        "nvidia",
+        null,
+        null,
+        { code: "combo_target_timeout", type: "combo_target_timeout" }
+      );
+      assert.equal(fb.shouldFallback, true);
+      assert.equal(fb.ruleScope, "provider_single_model");
+      assert.equal(fb.reason, "model_capacity");
+      assert.equal(fb.cooldownMs, 900_000);
+    });
+  });
+
+  describe("HTTP 400 operator rules priority over built-in patterns", () => {
+    const customProvider = "openai-compatible-chat-3c007462-eae7-44ca-a129-f721d0004827";
+    const errorMsg = "Requested model deepseek-r1 is not supported";
+
+    it("operator rule for 400 with scope='provider' takes precedence over MODEL_ACCESS_DENIED_PATTERNS", () => {
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "provider",
+            reason: "quota_exhausted",
+            cooldownMs: 21600000,
+          },
+        ],
+      });
+
+      const result = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(result.shouldFallback, true);
+      assert.equal(result.reason, "quota_exhausted");
+      assert.equal(result.ruleScope, "provider");
+      assert.equal(result.cooldownMs, 21600000);
+      assert.equal(result.configuredCooldownMs, 21600000);
+    });
+
+    it("operator rule for 400 with scope='connection' takes precedence over zero-cooldown 400", () => {
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "connection",
+            reason: "quota_exhausted",
+            cooldownMs: 3600000,
+          },
+        ],
+      });
+
+      const result = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(result.shouldFallback, true);
+      assert.equal(result.reason, "quota_exhausted");
+      assert.equal(result.ruleScope, "connection");
+      assert.equal(result.cooldownMs, 3600000);
+    });
+
+    it("without operator rule, 400 with 'not supported' falls back to zero-cooldown MODEL_CAPACITY", () => {
+      const result = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(result.shouldFallback, true);
+      assert.equal(result.reason, "model_capacity");
+      assert.equal(result.cooldownMs, 0);
+      assert.equal(result.ruleScope, undefined);
+    });
+
+    it("combo target exhaustion: ruleScope='provider' adds provider to exhaustedProviders", () => {
+      const sets: ComboExhaustionSets = {
+        exhaustedProviders: new Set<string>(),
+        exhaustedConnections: new Set<string>(),
+        transientRateLimitedProviders: new Set<string>(),
+      };
+
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "provider",
+            cooldownMs: 21600000,
+          },
+        ],
+      });
+
+      const fallbackResult = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(fallbackResult.ruleScope, "provider");
+
+      const exhausted = applyComboTargetExhaustion(
+        { provider: customProvider, connectionId: "conn-123", model: "deepseek-r1" },
+        {
+          result: { status: 400 },
+          fallbackResult,
+          errorText: errorMsg,
+          rawModel: "deepseek-r1",
+          isTokenLimitBreach: false,
+          allAccountsRateLimited: false,
+          requestScopedFailure: false,
+          sets,
+          log: { info: () => {}, debug: () => {} },
+          tag: "COMBO",
+          exhaustedLogLevel: "info",
+        }
+      );
+
+      assert.equal(exhausted.providerExhausted, true);
+      assert.ok(
+        sets.exhaustedProviders.has(customProvider),
+        "provider must be added to exhaustedProviders"
+      );
+    });
+
+    it("combo target exhaustion: ruleScope='connection' adds connection to exhaustedConnections", () => {
+      const sets: ComboExhaustionSets = {
+        exhaustedProviders: new Set<string>(),
+        exhaustedConnections: new Set<string>(),
+        transientRateLimitedProviders: new Set<string>(),
+      };
+
+      setOperatorProviderErrorRules({
+        [customProvider]: [
+          {
+            status: 400,
+            match: "not supported",
+            scope: "connection",
+            cooldownMs: 3600000,
+          },
+        ],
+      });
+
+      const fallbackResult = checkFallbackError(400, errorMsg, 0, "deepseek-r1", customProvider);
+      assert.equal(fallbackResult.ruleScope, "connection");
+
+      const exhausted = applyComboTargetExhaustion(
+        { provider: customProvider, connectionId: "conn-123", model: "deepseek-r1" },
+        {
+          result: { status: 400 },
+          fallbackResult,
+          errorText: errorMsg,
+          rawModel: "deepseek-r1",
+          isTokenLimitBreach: false,
+          allAccountsRateLimited: false,
+          requestScopedFailure: false,
+          sets,
+          log: { info: () => {}, debug: () => {} },
+          tag: "COMBO",
+          exhaustedLogLevel: "info",
+        }
+      );
+
+      assert.equal(exhausted.providerExhausted, true);
+      assert.ok(sets.exhaustedConnections.has(`${customProvider}:conn-123`));
+      assert.ok(!sets.exhaustedProviders.has(customProvider));
     });
   });
 });
