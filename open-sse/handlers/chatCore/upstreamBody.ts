@@ -43,6 +43,7 @@ import {
   stripGpt5ReasoningWhenTools,
 } from "../../services/gpt5SamplingGuard.ts";
 import { wireAdaptiveEffort } from "./adaptiveEffortWiring.ts";
+import { stripDsmlToolMarkup } from "../../utils/dsmlToolCalls.ts";
 
 type LoggerLike =
   | { debug?: (...args: unknown[]) => void; warn?: (tag: string, message: string) => void }
@@ -527,5 +528,29 @@ export async function prepareUpstreamBody(opts: PrepareUpstreamBodyOptions): Pro
     connectionCacheOverride
   );
 
+  bodyToSend = stripDsmlFromMessages(bodyToSend);
+
   return bodyToSend;
+}
+
+/**
+ * Remove leaked DSML tool markup from message content before dispatch: some
+ * upstreams echo the model's raw tool-call syntax back into the transcript.
+ * An emptied content is nulled when the message still carries tool_calls so the
+ * upstream does not receive an empty text block next to a tool call.
+ */
+function stripDsmlFromMessages(body: Body): Body {
+  if (!Array.isArray(body?.messages)) return body;
+  for (const msg of body.messages) {
+    if (msg && typeof msg.content === "string" && /[｜|]DSML[｜|]/i.test(msg.content)) {
+      const stripped = stripDsmlToolMarkup(msg.content).trim();
+      msg.content =
+        stripped.length > 0
+          ? stripped
+          : Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0
+            ? null
+            : "";
+    }
+  }
+  return body;
 }

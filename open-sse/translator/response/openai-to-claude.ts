@@ -17,7 +17,12 @@ import { REVERSE_MAP } from "../../services/claudeCodeToolRemapper.ts";
 import { restoreDeclaredToolName } from "../../services/declaredToolCasing.ts";
 import { sanitizeToolId } from "../helpers/schemaCoercion.ts";
 import { splitMarkdownBoundary } from "../helpers/markdownBoundary.ts";
-import { hasDsmlToolCalls, parseDsmlToolCalls } from "../../utils/dsmlToolCalls.ts";
+import {
+  hasDsmlToolCalls,
+  parseDsmlToolCalls,
+  stripDsmlToolMarkup,
+  extractStreamingDsmlHoldback,
+} from "../../utils/dsmlToolCalls.ts";
 import {
   createDirectivePreambleStripper,
   createSystemPreambleStripper,
@@ -604,6 +609,15 @@ export function openaiToClaudeResponse(chunk, state) {
           name: tc.function.name,
           args: JSON.parse(tc.function.arguments) as Record<string, string>,
         }));
+      }
+
+      if (dsmlContent) {
+        dsmlContent = stripDsmlToolMarkup(dsmlContent);
+        const extracted = extractStreamingDsmlHoldback(dsmlContent);
+        dsmlContent = extracted.content;
+        if (extracted.holdback) {
+          state._dsmlHoldback = (state._dsmlHoldback || "") + extracted.holdback;
+        }
       }
 
       // Check for XML <invoke> blocks that some models emit instead of JSON tool_calls

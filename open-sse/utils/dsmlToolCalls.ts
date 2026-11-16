@@ -38,8 +38,8 @@
  * `tool_calls` / `invoke` / `parameter` (structural closing tags).
  */
 
-// Full-width or ASCII pipe — matches composerToolCalls.ts's FW class.
-const FW = "[｜|]";
+// Full-width or ASCII pipe — matches composerToolCalls.ts's FW class (accepts 1 or 2 pipes).
+const FW = "[｜|]{1,2}";
 
 // Opening tool-call tag: <｜DSML｜:ToolName>  (colon + name, optional attrs).
 const DSML_OPEN_RE = new RegExp(`<${FW}DSML${FW}:(\\w+)([^>]*)>`, "i");
@@ -73,9 +73,52 @@ const STRAY_CLOSE_SRC =
 // consumed, so the echo's own trailing newline is preserved.
 const DSML_STRAY_CLOSE_RE = new RegExp(STRAY_CLOSE_SRC, "gi");
 
-// Partial opening marker at the very tail of a (streaming) chunk: a `<｜DSML｜`
-// that never closes — hold it back so it cannot leak as visible text and can
-// be re-evaluated once more bytes arrive.
+// Complete or container DSML markup regex for stripping leaked tool envelopes
+// (e.g. <｜DSML｜ calls>, </｜DSML｜ calls>, ｜DSML｜ calls>, <｜｜DSML｜｜ invoke name="...">, <｜DSML｜:Read>).
+const DSML_MARKUP_REGEX = new RegExp(
+  `(?:</?${FW}|${FW})DSML${FW}(?::\\w+>|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*>?|>)\\s*`,
+  "gi"
+);
+const STRAY_PARAMETER_OR_INVOKE_CLOSE_RE = /<\/(?:parameter|invoke)>\n*/gi;
+
+const LEADING_DSML_MARKUP_REGEX = new RegExp(
+  `^\\s*(?:</?${FW}|${FW})DSML${FW}(?::\\w+>|\\s*(?:calls|tool_calls|function_calls|invoke|parameter)[^>]*>?|>)\\s*`,
+  "i"
+);
+
+/**
+ * Strip DeepSeek DSML tool markers (e.g. `<｜DSML｜ calls>`, `</｜DSML｜invoke>`, `｜DSML｜ calls>`, `<｜｜DSML｜｜ calls>`)
+ * that leak into assistant message content or streaming deltas.
+ */
+export function stripDsmlToolMarkup(content: string): string {
+  if (!content || !/[｜|]DSML[｜|]/i.test(content)) return content;
+  const stripped = content
+    .replace(LEADING_DSML_MARKUP_REGEX, "")
+    .replace(DSML_MARKUP_REGEX, "")
+    .replace(STRAY_PARAMETER_OR_INVOKE_CLOSE_RE, "")
+    .replace(/\n{3,}/g, "\n\n");
+  if (stripped.trim().length === 0) return "";
+  return stripped;
+}
+
+// Partial opening or container marker at the very tail of a (streaming) chunk:
+// e.g. `\n\n<`, `<｜`, `\n\n<｜DSML`, `｜DSML｜ calls` (without closing `>`).
+// Hold it back so it cannot leak as visible text and can be combined once more bytes arrive.
+export const DSML_PARTIAL_TRAILING_RE =
+  /(?:\n*<\/?[｜|]{0,2}|\n*<\/?[｜|]{1,2}D(?:S(?:M(?:L(?:[｜|]{0,2}[^>]*)?)?)?)?|[｜|]{1,2}D(?:S(?:M(?:L(?:[｜|]{0,2}[^>]*)?)?)?)?)$/i;
+
+export function extractStreamingDsmlHoldback(text: string): { content: string; holdback: string } {
+  if (!text) return { content: "", holdback: "" };
+  const match = text.match(DSML_PARTIAL_TRAILING_RE);
+  if (match && match.index !== undefined) {
+    return {
+      content: text.slice(0, match.index),
+      holdback: text.slice(match.index),
+    };
+  }
+  return { content: text, holdback: "" };
+}
+
 const DSML_PARTIAL_OPEN_RE = new RegExp(`(<${FW}DSML${FW}[^<]*)$`, "i");
 
 export interface DsmlToolCall {
@@ -113,7 +156,7 @@ export function parseDsmlToolCalls(text: string): ParseDsmlResult {
     if (!openMatch || openMatch.index === undefined) {
       // No more complete openers. Strip stray closing markers from the tail
       // (and a trailing partial opener, if any).
-      let tail = remaining.replace(DSML_STRAY_CLOSE_RE, "");
+      let tail = stripDsmlToolMarkup(remaining.replace(DSML_STRAY_CLOSE_RE, ""));
       const partial = tail.match(DSML_PARTIAL_OPEN_RE);
       let holdback = "";
       if (partial) {
@@ -121,7 +164,7 @@ export function parseDsmlToolCalls(text: string): ParseDsmlResult {
         holdback = partial[1];
       }
       cleaned += tail;
-      return { content: cleaned, toolCalls, holdback };
+      return { content: stripDsmlToolMarkup(cleaned), toolCalls, holdback };
     }
 
     // Emit any text before the opener (stray closers already removed).
@@ -131,8 +174,8 @@ export function parseDsmlToolCalls(text: string): ParseDsmlResult {
     const toolName = openMatch[1];
     const afterOpen = remaining.slice(openMatch.index + openMatch[0].length);
     const closeRe = dsmlCloseRe(toolName);
-    const closeMatch = closeRe.exec(afterOpen);
-    if (!closeMatch) {
+    const closeMatch = afterOpen.match(closeRe);
+    if (!closeMatch || closeMatch.index === undefined) {
       // Opener without a closer — incomplete block. Treat the opener itself
       // as held-back (drop it from content) rather than leaking the marker.
       return { content: cleaned, toolCalls, holdback: openMatch[0] + afterOpen };
